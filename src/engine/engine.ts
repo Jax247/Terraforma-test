@@ -403,12 +403,15 @@ function execLine(s: GameState, line: SpellEffectLine, b: Binding): void {
     case 'Push':
     case 'Pull': {
       const units = resolveTargetUnits(s, line.target, b);
+      // Area displacement radiates from the AREA's center; single-target from the effect source.
+      const isArea = line.target.t === 'Area3x3' || line.target.t === 'Area2x2';
+      const origin = isArea ? (b.chosen?.[0] ?? b.sourcePos) : b.sourcePos;
       // Push outer units first so inner ones aren't blocked by their own pack.
-      units.sort((x, y) => chebyshev(y.pos, b.sourcePos) - chebyshev(x.pos, b.sourcePos));
+      units.sort((x, y) => chebyshev(y.pos, origin) - chebyshev(x.pos, origin));
       if (eff.e === 'Pull') units.reverse();
       for (const u of units) {
         if (u.id === b.selfUnitId) continue;
-        displaceUnit(s, u, b.sourcePos, eff.tiles, eff.e === 'Push' ? 'push' : 'pull');
+        displaceUnit(s, u, origin, eff.tiles, eff.e === 'Push' ? 'push' : 'pull');
       }
       return;
     }

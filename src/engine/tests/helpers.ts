@@ -15,7 +15,7 @@ export interface FixtureOverrides {
   board?: Board;
   extraCards?: Record<string, CardDef>;
   extraTokens?: Record<string, TokenDef>;
-  leaders?: [LeaderDef, LeaderDef];
+  leaders?: [LeaderDef | undefined, LeaderDef | undefined];
   decks?: [string[], string[]];
   fusionPools?: [string[], string[]];
 }
@@ -58,6 +58,18 @@ export function passRounds(s: GameState, n: number): GameState {
   let cur = s;
   for (let i = 0; i < n * 2; i++) cur = applyAction(cur, { t: 'EndTurn' });
   return cur;
+}
+
+/** Fixture-only: relocate a unit ignoring movement rules. */
+export function teleport(s: GameState, unitId: string, pos: { col: number; row: number }): void {
+  const u = s.units[unitId];
+  if (!u) throw new Error(`no unit ${unitId}`);
+  const from = s.board[u.pos.col - 1]![u.pos.row - 1]!;
+  const to = s.board[pos.col - 1]![pos.row - 1]!;
+  if (to.occupant) throw new Error('teleport destination occupied');
+  from.occupant = undefined;
+  to.occupant = { kind: 'unit', id: u.id };
+  u.pos = { ...pos };
 }
 
 export { GRAVEMARCH_CARDS };
