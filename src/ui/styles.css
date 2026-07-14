@@ -1,0 +1,35 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, Menlo, monospace; background: #1b1d22; color: #e8e6e0; }
+.app { display: flex; gap: 16px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+.board { display: grid; grid-template-columns: repeat(7, 76px); grid-template-rows: repeat(7, 76px); gap: 2px; }
+.tile { position: relative; border: 1px solid #00000055; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.tile .coord { position: absolute; top: 2px; left: 4px; font-size: 9px; opacity: 0.55; color: #111; }
+.tile .spring { position: absolute; bottom: 2px; right: 4px; font-size: 13px; }
+.tile.highlight { outline: 3px solid #ffd75e; outline-offset: -3px; }
+.tile.selected { outline: 3px solid #6ecbff; outline-offset: -3px; }
+.tile.targeting { outline: 3px dashed #ff8de1; outline-offset: -3px; }
+.unit { width: 58px; height: 58px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; box-shadow: 0 2px 4px #0008; }
+.unit.p0 { background: #2f6fb3; }
+.unit.p1 { background: #b3452f; }
+.unit.sick { opacity: 0.65; }
+.unit .atk { font-size: 18px; }
+.unit .tag { font-size: 10px; font-weight: 400; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unit.leader { border: 2px solid #ffd75e; }
+.facedown { width: 58px; height: 58px; border-radius: 6px; background: repeating-linear-gradient(45deg, #3a3f4d, #3a3f4d 6px, #2c303b 6px, #2c303b 12px); border: 1px solid #555; display: flex; align-items: center; justify-content: center; color: #99a; font-size: 22px; }
+.side { min-width: 340px; max-width: 430px; display: flex; flex-direction: column; gap: 10px; }
+.panel { background: #262a33; border-radius: 8px; padding: 10px 12px; }
+.panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; margin-bottom: 6px; }
+.statusline { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+.statusline .big { font-size: 17px; font-weight: 700; }
+.hand { display: flex; gap: 6px; flex-wrap: wrap; }
+.card { background: #333949; border: 1px solid #4a5165; border-radius: 6px; padding: 6px 8px; cursor: pointer; font-size: 12px; min-width: 86px; }
+.card:hover { border-color: #ffd75e; }
+.card.active { border-color: #ff8de1; }
+.card .cost { color: #ffd75e; }
+button { background: #3d5a80; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-family: inherit; font-weight: 700; cursor: pointer; }
+button:hover { filter: brightness(1.15); }
+button.small { padding: 3px 8px; font-size: 11px; font-weight: 400; background: #4a5165; }
+.error { color: #ff9d9d; min-height: 18px; font-size: 12px; }
+.log { font-size: 11px; line-height: 1.5; max-height: 210px; overflow-y: auto; opacity: 0.85; }
+.winner { position: fixed; inset: 0; background: #000c; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; z-index: 10; }
+.prompt { color: #ff8de1; font-size: 12px; min-height: 16px; }
