@@ -70,6 +70,8 @@ interface Binding {
   attackerId?: string;
   pathTiles?: Coord[];      // OnMove
   destinationTile?: Coord;  // OnKill
+  /** Trigger-fired effects fizzle on a missing target; player actions throw instead. */
+  lenient?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,7 @@ function destroyUnit(s: GameState, unitId: string): void {
         owner: u.owner,
         sourcePos: u.pos,
         selfUnitId: u.id,
+        lenient: true,
       });
     }
   }
@@ -149,7 +152,7 @@ function fireOnCapture(s: GameState, capturer: Unit): void {
   const rules: Rule[] = def?.kind === 'unit' ? def.rules : [];
   for (const rule of rules) {
     if (rule.trigger !== 'OnCapture') continue;
-    execLine(s, rule, { owner: capturer.owner, sourcePos: capturer.pos, selfUnitId: capturer.id });
+    execLine(s, rule, { owner: capturer.owner, sourcePos: capturer.pos, selfUnitId: capturer.id, lenient: true });
   }
   // TODO(open): leader OnCapture (Oskar "OnCapture -> Draw 1") ruled to fire on ANY
   // friendly capture, not only the leader's own.
@@ -159,6 +162,7 @@ function fireOnCapture(s: GameState, capturer: Unit): void {
       owner: capturer.owner,
       sourcePos: leaderOf(s, capturer.owner).pos,
       selfUnitId: leaderOf(s, capturer.owner).id,
+      lenient: true,
     });
   }
 }
@@ -184,7 +188,10 @@ function resolveTargetUnits(s: GameState, target: TargetSpec, b: Binding): Unit[
     case 'ChosenUnit':
     case 'ChosenEnemy': {
       const c = b.chosen?.[0];
-      if (!c) fail('target required');
+      if (!c) {
+        if (b.lenient) return []; // no legal target: the triggered effect fizzles
+        fail('target required');
+      }
       const u = unitAt(s, c);
       if (!u) fail('no unit at target');
       if (target.t === 'ChosenEnemy' && u.owner === b.owner) fail('must target an enemy');
@@ -566,6 +573,7 @@ function fireTraps(s: GameState, event: TrapEvent): boolean {
       sourcePos: trap.pos,
       triggeringUnitId: event.kind === 'moveIntoZone' ? event.moverId : event.kind === 'attack' ? event.attackerId : undefined,
       attackerId: event.kind === 'attack' ? event.attackerId : undefined,
+      lenient: true,
     };
     for (const line of def.effects) execLine(s, line, binding);
     if (def.interrupt === 'negate') negated = true;
@@ -645,6 +653,7 @@ function fireOnKill(s: GameState, attacker: Unit, destination: Coord): void {
       sourcePos: attacker.pos,
       selfUnitId: attacker.id,
       destinationTile: destination,
+      lenient: true,
     });
   }
 }
@@ -661,6 +670,7 @@ function fireOnMove(s: GameState, mover: Unit, path: Coord[]): void {
       sourcePos: mover.pos,
       selfUnitId: mover.id,
       pathTiles: path,
+      lenient: true,
     });
   }
 }
@@ -916,14 +926,14 @@ function doSummon(s: GameState, cardId: string, tile: Coord): void {
 
 /** For OnSummon rules with Chosen* targets, auto-pick the first legal candidate (POC shortcut). */
 function autoBindChosen(s: GameState, rule: Rule, b: Binding): Binding {
-  if (rule.target.t !== 'ChosenEnemy' && rule.target.t !== 'ChosenUnit') return b;
+  if (rule.target.t !== 'ChosenEnemy' && rule.target.t !== 'ChosenUnit') return { ...b, lenient: true };
   for (const u of Object.values(s.units)) {
     if (u.isLeader) continue;
     if (rule.target.t === 'ChosenEnemy' && u.owner === b.owner) continue;
     if (!conditionHolds(s, rule.condition, u)) continue;
-    return { ...b, chosen: [u.pos] };
+    return { ...b, chosen: [u.pos], lenient: true };
   }
-  return { ...b, chosen: undefined };
+  return { ...b, chosen: undefined, lenient: true };
 }
 
 function doMove(s: GameState, unitId: string, to: Coord): void {
