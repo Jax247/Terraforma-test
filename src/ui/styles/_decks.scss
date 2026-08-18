@@ -1,0 +1,239 @@
+@use 'mixins' as *;
+
+// The deck viewer is the best showcase the app has for the generated card art —
+// 114 illustrations that the old wall-of-small-tiles layout under-served.
+
+.deck-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  max-width: 110rem;
+  margin: 0 auto;
+
+  @include below(sm) {
+    padding: var(--space-3) var(--space-2);
+  }
+}
+
+// ---- Filter bar --------------------------------------------------------------
+.deck-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  padding: var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface-base);
+}
+
+.deck-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  @include inscribed(var(--text-3xs));
+}
+
+.deck-toolbar select {
+  background: var(--surface-inset);
+  color: var(--ink-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  text-transform: none;
+  letter-spacing: normal;
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.deck-search {
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 26rem;
+  background: var(--surface-inset);
+  color: var(--ink-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+
+  &::placeholder {
+    color: var(--ink-muted);
+  }
+
+  // The old rule removed the outline and recoloured the border instead, leaving
+  // keyboard users a 1px signal. The ring is added, not substituted.
+  &:focus-visible {
+    @include focus-ring;
+    border-color: var(--accent);
+  }
+}
+
+.filter-chips {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+// ---- Deck section ------------------------------------------------------------
+.deck-col {
+  @include panel;
+  padding: var(--space-3);
+}
+
+.deck-col > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::before {
+    content: '▸';
+    color: var(--ink-muted);
+    transition: transform var(--motion-fast) var(--ease-out);
+    flex-shrink: 0;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.deck-col[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.deck-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+// The leader is the deck's face; its portrait belongs in the header.
+.deck-crest {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.deck-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-md);
+  letter-spacing: var(--tracking-display);
+  color: var(--ink-primary);
+}
+
+.deck-identity {
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+}
+
+.deck-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+// ---- Sub-sections ------------------------------------------------------------
+.deck-section > summary {
+  @include inscribed(var(--text-3xs));
+  margin: var(--space-4) 0 var(--space-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::before {
+    content: '▸';
+    transition: transform var(--motion-fast) var(--ease-out);
+  }
+
+  &:hover {
+    color: var(--accent);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.deck-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+// ---- Card grid ---------------------------------------------------------------
+// auto-fill tracks, not fixed 150px tiles: one rule serves a 2-up phone and a
+// 12-up desktop.
+.deck-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--space-2);
+  align-items: start;
+
+  @include below(sm) {
+    grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  }
+}
+
+// ---- Experimental divider ----------------------------------------------------
+.deck-divider {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--border-strong);
+}
+
+.deck-divider h3 {
+  @include inscribed(var(--text-2xs));
+  color: var(--accent);
+  margin-bottom: var(--space-1);
+}
+
+.deck-divider span {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+}
+
+.deck-empty {
+  padding: var(--space-6);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}

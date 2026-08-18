@@ -61,25 +61,30 @@ describe('Sim 8 — mines are pinpoint, contact-triggered, one-shot', () => {
 });
 
 describe('Sim 8 — the LIFO before-completion chain', () => {
-  it('respond trap: Snare fires first, the paused attack still completes, immobilize bites next turn', () => {
+  it('respond trap: Snare fires first, the paused attack still completes, stun bites next turn', () => {
     let s = duskweaveGame();
     const legionnaire = debugSpawn(s, 'legionnaire', 0, { col: 3, row: 5 });
     const hexblade = debugSpawn(s, 'hexblade', 1, { col: 3, row: 6 });
     s = p2Sets(s, 'shadowSnare', { col: 4, row: 6 }); // zone covers (3,6)
 
     s = applyAction(s, { t: 'Move', unit: legionnaire.id, to: { col: 3, row: 6 } });
-    // Chain resolved LIFO: Snare (immobilize) → then the attack completes: 45 > 30.
+    // Chain resolved LIFO: Snare (stun) → then the attack completes: 45 > 30.
     expect(s.units[hexblade.id]).toBeUndefined();
     const leg = s.units[legionnaire.id]!;
     expect(leg.pos).toEqual({ col: 3, row: 6 });                       // advance-on-kill still happened
-    expect(leg.statuses.some((st) => st.kind === 'Immobilized')).toBe(true);
+    expect(leg.statuses.some((st) => st.kind === 'Stunned')).toBe(true);
     expect(s.players[1].graveyard).toContain('shadowSnare');           // trap consumed on activation
 
     // Next P1 turn: no move (the status costs the victim its own activations).
     s = endUntil(applyAction(s, { t: 'EndTurn' }), 0);
     expect(() => applyAction(s, { t: 'Move', unit: legionnaire.id, to: { col: 3, row: 5 } }))
-      .toThrow(/immobilized/);
-    // The turn after, it has expired.
+      .toThrow(/cannot move/);
+    // ...and the turn after that too: turnsLeft 2 costs the victim exactly TWO of its own
+    // activations, per the locked duration rule in the vault's Non-Unit Cards.
+    s = endUntil(applyAction(s, { t: 'EndTurn' }), 0);
+    expect(() => applyAction(s, { t: 'Move', unit: legionnaire.id, to: { col: 3, row: 5 } }))
+      .toThrow(/cannot move/);
+    // The third turn, it has expired.
     s = endUntil(applyAction(s, { t: 'EndTurn' }), 0);
     s = applyAction(s, { t: 'Move', unit: legionnaire.id, to: { col: 3, row: 5 } });
     expect(s.units[legionnaire.id]!.pos).toEqual({ col: 3, row: 5 });

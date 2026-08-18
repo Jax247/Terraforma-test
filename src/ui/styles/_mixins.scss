@@ -1,0 +1,121 @@
+// Shared SCSS helpers. Everything here is composition sugar over _tokens.scss —
+// no new design decisions live in this file.
+
+@use 'sass:map';
+
+// ---- Breakpoints ------------------------------------------------------------
+// Mobile-first: `respond-to(lg)` means "lg and wider".
+// The old stylesheet had exactly one media query (max-width: 1180px); these are
+// the replacement set, chosen around the board's own geometry rather than devices.
+$breakpoints: (
+  sm: 480px,
+  // phone landscape
+  md: 768px,
+  // tablet portrait — board drops the side rail
+  lg: 1024px,
+  // tablet landscape / small laptop
+  xl: 1280px,
+  // the old 1180px three-column threshold, rounded
+  wide: 1600px,
+);
+
+@mixin respond-to($name) {
+  $bp: map.get($breakpoints, $name);
+  @if $bp == null {
+    @error 'Unknown breakpoint `#{$name}`. Known: #{map.keys($breakpoints)}.';
+  }
+  @media (min-width: $bp) {
+    @content;
+  }
+}
+
+// Below a breakpoint — for the handful of rules that are genuinely small-screen-only.
+@mixin below($name) {
+  $bp: map.get($breakpoints, $name);
+  @if $bp == null {
+    @error 'Unknown breakpoint `#{$name}`. Known: #{map.keys($breakpoints)}.';
+  }
+  @media (max-width: #{$bp - 0.02px}) {
+    @content;
+  }
+}
+
+// ---- Surfaces ---------------------------------------------------------------
+@mixin panel($surface: var(--surface-raised)) {
+  background: $surface;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+// A heading that reads as inscribed rather than typed. The gold rule under it is
+// the recurring device that ties every panel on every screen together.
+@mixin inscribed($size: var(--text-2xs)) {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: $size;
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+
+@mixin rule-under($color: var(--accent-dim)) {
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid $color;
+}
+
+// ---- Focus ------------------------------------------------------------------
+// The old stylesheet did `outline: none` with no replacement. This is the one
+// approved way to style focus, and it must be applied to every interactive element.
+@mixin focus-ring($color: var(--accent)) {
+  outline: var(--focus-ring) solid $color;
+  outline-offset: 2px;
+}
+
+@mixin focusable($color: var(--accent)) {
+  &:focus-visible {
+    @include focus-ring($color);
+  }
+}
+
+// ---- Text -------------------------------------------------------------------
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin clamp-lines($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// Stats, coordinates, costs — anything that should align in a column.
+@mixin numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+// ---- Scroll regions ---------------------------------------------------------
+// Replaces the `max-height: calc(100vh - 90px)` pattern, which breaks on phones
+// where the viewport chrome moves.
+@mixin scroll-region {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+// ---- Accessibility ----------------------------------------------------------
+@mixin visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

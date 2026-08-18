@@ -6,12 +6,12 @@ import type { Board, CardDef, Coord, LeaderDef, TokenDef } from '../types';
 
 export const WILDGROWTH_CARDS: Record<string, CardDef> = {
   thornfang: {
-    kind: 'unit', id: 'thornfang', name: 'Thornfang', type: 'Beast', level: 3, atk: 30,
+    kind: 'unit', id: 'thornfang', name: 'Thornfang', type: 'Beast', level: 3, atk: 30, dc: 3,
     keywords: [],
     rules: [{ trigger: 'OnKill', effect: { e: 'PaintTerrain', terrain: 'Forest' }, target: { t: 'DestinationTile' } }],
   },
   grovecaller: {
-    kind: 'unit', id: 'grovecaller', name: 'Grovecaller', type: 'Verdant', level: 4, atk: 25,
+    kind: 'unit', id: 'grovecaller', name: 'Grovecaller', type: 'Verdant', level: 4, atk: 25, dc: 3,
     keywords: [],
     rules: [{
       trigger: 'Passive',
@@ -20,32 +20,35 @@ export const WILDGROWTH_CARDS: Record<string, CardDef> = {
     }],
   },
   mosshideBull: {
-    kind: 'unit', id: 'mosshideBull', name: 'Mosshide Bull', type: 'Beast', level: 5, atk: 45,
+    kind: 'unit', id: 'mosshideBull', name: 'Mosshide Bull', type: 'Beast', level: 5, atk: 45, dc: 1,
     keywords: [], rules: [],
   },
   saplingSentry: {
-    kind: 'unit', id: 'saplingSentry', name: 'Sapling Sentry', type: 'Verdant', level: 2, atk: 20,
-    keywords: ['Rooted'], rules: [],
+    kind: 'unit', id: 'saplingSentry', name: 'Sapling Sentry', type: 'Verdant', level: 2, atk: 20, dc: 2,
+    keywords: ['Anchored'], rules: [],
   },
   apexPredator: {
-    kind: 'unit', id: 'apexPredator', name: 'Apex Predator', type: 'Beast', level: 0, atk: 70,
+    kind: 'unit', id: 'apexPredator', name: 'Apex Predator', type: 'Beast', level: 0, atk: 70, dc: 3,
     keywords: [], rules: [],
     fusion: { materials: ['thornfang', 'mosshideBull'] },
   },
   verdantSurge: {
-    kind: 'spell', id: 'verdantSurge', name: 'Verdant Surge', scope: 'located',
+    kind: 'spell', id: 'verdantSurge', name: 'Verdant Surge', dc: 2, scope: 'located',
     effects: [{ effect: { e: 'PaintTerrain', terrain: 'Forest' }, target: { t: 'Line3' } }],
   },
   snareVine: {
-    kind: 'trap', id: 'snareVine', name: 'Snare Vine', interrupt: 'respond',
+    // DC 4 (2026-08-03 stun repricing): a 2-turn Stun is now near-removal — total lockdown
+    // AND the victim cannot strike back, so any spare body deletes it for free. Traps pay no
+    // SP, so DC carries the whole price: the spell rate (3) plus 1.
+    kind: 'trap', id: 'snareVine', name: 'Snare Vine', dc: 4, interrupt: 'respond',
     trigger: { t: 'zone' },
     effects: [{
-      effect: { e: 'ApplyStatus', status: 'Immobilized', amount: 0, duration: { kind: 'turns', turnsLeft: 2 } },
+      effect: { e: 'ApplyStatus', status: 'Stunned', amount: 0, duration: { kind: 'turns', turnsLeft: 2 } },
       target: { t: 'TriggeringUnit' },
     }],
   },
   wildAwakening: {
-    kind: 'spell', id: 'wildAwakening', name: 'Wild Awakening', scope: 'located', ascension: true,
+    kind: 'spell', id: 'wildAwakening', name: 'Wild Awakening', dc: 4, scope: 'located', ascension: true,
     // Frenzy here is the LOCKED redefinition (+5/adjacent ally), not the superseded no-strikeback one.
     effects: [{ effect: { e: 'Transform', atk: 60, addKeywords: ['Frenzy'] }, target: { t: 'ChosenUnit' } }],
   },
@@ -53,12 +56,12 @@ export const WILDGROWTH_CARDS: Record<string, CardDef> = {
 
 export const GRAVEMARCH_CARDS: Record<string, CardDef> = {
   duneshambler: {
-    kind: 'unit', id: 'duneshambler', name: 'Duneshambler', type: 'Undead', level: 3, atk: 30,
+    kind: 'unit', id: 'duneshambler', name: 'Duneshambler', type: 'Undead', level: 3, atk: 30, dc: 3,
     keywords: [],
     rules: [{ trigger: 'OnDeath', effect: { e: 'SummonToken', tokenId: 'husk', count: 1 }, target: { t: 'EmptyTileNear' } }],
   },
   graveTyrant: {
-    kind: 'unit', id: 'graveTyrant', name: 'Grave Tyrant', type: 'Undead', level: 6, atk: 55,
+    kind: 'unit', id: 'graveTyrant', name: 'Grave Tyrant', type: 'Undead', level: 6, atk: 55, dc: 4,
     keywords: [],
     rules: [{
       trigger: 'OnSummon',
@@ -68,11 +71,11 @@ export const GRAVEMARCH_CARDS: Record<string, CardDef> = {
     }],
   },
   carrionSwarm: {
-    kind: 'unit', id: 'carrionSwarm', name: 'Carrion Swarm', type: 'Insect', level: 2, atk: 15,
+    kind: 'unit', id: 'carrionSwarm', name: 'Carrion Swarm', type: 'Insect', level: 2, atk: 15, dc: 2,
     keywords: ['Frenzy'], rules: [],
   },
   sandRevenant: {
-    kind: 'unit', id: 'sandRevenant', name: 'Sand Revenant', type: 'Undead', level: 4, atk: 35,
+    kind: 'unit', id: 'sandRevenant', name: 'Sand Revenant', type: 'Undead', level: 4, atk: 35, dc: 3,
     keywords: [],
     rules: [{
       trigger: 'Passive',
@@ -81,20 +84,26 @@ export const GRAVEMARCH_CARDS: Record<string, CardDef> = {
     }],
   },
   dreadColossus: {
-    kind: 'unit', id: 'dreadColossus', name: 'Dread Colossus', type: 'Undead', level: 0, atk: 75,
+    kind: 'unit', id: 'dreadColossus', name: 'Dread Colossus', type: 'Undead', level: 0, atk: 75, dc: 3,
     keywords: [], rules: [],
     fusion: { materials: ['duneshambler', 'sandRevenant'] },
   },
   raiseTheFallen: {
-    kind: 'spell', id: 'raiseTheFallen', name: 'Raise the Fallen', scope: 'global',
+    kind: 'spell', id: 'raiseTheFallen', name: 'Raise the Fallen', dc: 3, scope: 'global',
     effects: [{ effect: { e: 'RaiseFromGraveyard', type: 'Undead' }, target: { t: 'ChosenUnit' } }],
   },
   scorchMine: {
-    kind: 'spell', id: 'scorchMine', name: 'Scorch Mine', scope: 'located',
+    // SP 2 (2026-08-09): the one card in this pre-SP-pass fixture file that a REGISTERED deck
+    // still plays (Duneforged), so it is priced like any other mine. Its sim-suite siblings below
+    // stay free — those decks predate spells costing SP at all, and the recorded sims assume it.
+    // DC 3 -> 2 (2026-08-16). It was the ONLY 30-damage card in the pool and priced a tier above the
+    // 20-damage mines. The DAMAGE_FLOOR pass moved every one of those to 30, so its premium was
+    // paying for a difference that no longer exists. Only Duneforged fields it (-2 to that budget).
+    kind: 'spell', id: 'scorchMine', name: 'Scorch Mine', dc: 2, sp: 2, scope: 'located',
     effects: [{ effect: { e: 'Damage', amount: 30 }, target: { t: 'TriggeringUnit' } }],
   },
   graspOfTheDead: {
-    kind: 'trap', id: 'graspOfTheDead', name: 'Grasp of the Dead', interrupt: 'respond',
+    kind: 'trap', id: 'graspOfTheDead', name: 'Grasp of the Dead', dc: 2, interrupt: 'respond',
     trigger: { t: 'enemyAttacksFriendly' },
     effects: [{
       effect: { e: 'ApplyStatus', status: 'AtkMod', amount: -20, duration: { kind: 'endOfTurn' } },
@@ -105,7 +114,7 @@ export const GRAVEMARCH_CARDS: Record<string, CardDef> = {
 
 export const POC_TOKENS: Record<string, TokenDef> = {
   husk: { id: 'husk', name: 'Husk', type: 'Undead', atk: 10, keywords: [] },
-  sapling: { id: 'sapling', name: 'Sapling', type: 'Verdant', atk: 10, keywords: ['Rooted'] },
+  sapling: { id: 'sapling', name: 'Sapling', type: 'Verdant', atk: 10, keywords: ['Anchored'] },
 };
 
 export const BRIAR: LeaderDef = {
@@ -114,9 +123,9 @@ export const BRIAR: LeaderDef = {
     { trigger: 'OnMove', effect: { e: 'PaintTerrain', terrain: 'Forest' }, target: { t: 'TilesMovedThrough' } },
     { trigger: 'Passive', effect: { e: 'AuraAtk', amount: 10 }, target: { t: 'FriendlyOfTypesOnTerrain', types: ['Beast', 'Verdant'], terrain: 'Forest' } },
   ],
-  // Chosen active for the POC (matches sim 5): Overgrowth, 3 SP, located, anchored to friendly units.
+  // Chosen active for the POC (matches sim 5): Overgrowth, 5 SP, located to the leader's own reach.
   ability: {
-    id: 'overgrowth', name: 'Overgrowth', cost: 3, located: true, anchor: 'friendlyUnit',
+    id: 'overgrowth', name: 'Overgrowth', cost: 5, located: true,
     effects: [{ effect: { e: 'PaintTerrain', terrain: 'Forest' }, target: { t: 'Line3' } }],
   },
 };
@@ -129,7 +138,7 @@ export const OSKAR: LeaderDef = {
   ],
   // Chosen active for the POC (matches sim 5): Raise, 5 SP, located (summon zone is inherently in reach).
   ability: {
-    id: 'raise', name: 'Raise', cost: 5, located: true, anchor: 'leader',
+    id: 'raise', name: 'Raise', cost: 5, located: true,
     effects: [{ effect: { e: 'RaiseFromGraveyard', type: 'Undead' }, target: { t: 'ChosenUnit' } }],
   },
 };

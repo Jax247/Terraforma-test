@@ -1,0 +1,111 @@
+@use '../styles/mixins' as *;
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+
+  @include focusable;
+
+  &:disabled {
+    cursor: not-allowed;
+    // Disabled controls are exempt from the contrast requirement, but 0.45 was
+    // faint enough to be a usability problem in its own right.
+    opacity: 0.6;
+  }
+}
+
+// ---- Sizes ----
+.md {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-base);
+}
+
+.sm {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+}
+
+.lg {
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--text-md);
+  letter-spacing: var(--tracking-label);
+}
+
+// ---- Variants ----
+// `primary` is the one call to action on a screen; everything else is quiet.
+// Deliberately darker than --faction-0: the faction blue against --ink-primary
+// measures 4.25:1, just under AA for normal-size text.
+.primary {
+  background: #2a63a0;
+  color: var(--ink-primary);
+  border-color: #ffffff1a;
+
+  &:hover:not(:disabled) {
+    background: #3277bd;
+  }
+}
+
+.secondary {
+  background: var(--surface-inset);
+  color: var(--ink-primary);
+  border-color: var(--border-strong);
+
+  &:hover:not(:disabled) {
+    background: var(--surface-overlay);
+    border-color: var(--accent-dim);
+  }
+}
+
+.ghost {
+  background: transparent;
+  color: var(--ink-secondary);
+
+  &:hover:not(:disabled) {
+    background: #ffffff0f;
+    color: var(--ink-primary);
+  }
+}
+
+// The one destructive action in the app: burning a card over the hand cap.
+.danger {
+  background: #8c3535;
+  color: var(--ink-primary);
+
+  &:hover:not(:disabled) {
+    background: #a33d3d;
+  }
+}
+
+// Gold — reserved for the terminal action of a flow (Start game, End turn).
+.accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+
+  &:hover:not(:disabled) {
+    background: var(--accent-strong);
+  }
+}
+
+// ---- States ----
+// A toggle that is currently on, e.g. the selected nav item or an active tool.
+.active {
+  background: var(--accent-faint);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.block {
+  width: 100%;
+}

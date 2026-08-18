@@ -1,0 +1,131 @@
+@use '../styles/mixins' as *;
+
+// A selectable row. The old UI spelled this `.card deck-choice` and repeated it in
+// four screens (deck pick, board pick, saved boards, saved decks) with slightly
+// different markup each time.
+
+.choice {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  background: var(--surface-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+
+  @include focusable;
+
+  &:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-overlay);
+  }
+}
+
+// Selection is marked three ways — border, tint, and the check glyph — because a
+// border colour alone is not a reliable signal.
+.selected {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+
+  .title {
+    color: var(--accent);
+  }
+}
+
+.check {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  color: var(--accent);
+  opacity: 0;
+}
+
+.selected .check {
+  opacity: 1;
+}
+
+// Leader portrait / map thumbnail.
+.figure {
+  flex-shrink: 0;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  // Room for the check glyph.
+  padding-right: var(--space-5);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--ink-primary);
+  min-width: 0;
+  @include truncate;
+}
+
+.tag {
+  @include inscribed(var(--text-3xs));
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+.blurb {
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+  @include clamp-lines(2);
+}
+
+.badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
+}
+
+// Inspect affordance — sits outside the choice button so it isn't a nested button.
+.row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.aside {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}

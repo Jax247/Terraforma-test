@@ -1,0 +1,61 @@
+@use './styles/mixins' as *;
+
+.group + .group {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.groupTitle {
+  @include inscribed(var(--text-2xs));
+  color: var(--accent);
+  margin-bottom: var(--space-1);
+}
+
+.groupNote {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+}
+
+// A segmented control: the options are few, mutually exclusive, and worth seeing
+// all at once — a dropdown would hide the choice behind a click.
+.segmented {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.segment {
+  flex: 1 1 auto;
+  min-width: 5rem;
+}
+
+.resolved {
+  margin-top: var(--space-3);
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+}
+
+.resolvedValue {
+  @include numeric;
+  color: var(--ink-secondary);
+}
+
+.override {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--state-warn);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  color: var(--state-warn);
+}

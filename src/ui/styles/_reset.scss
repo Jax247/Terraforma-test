@@ -1,0 +1,81 @@
+// Reset + document-level defaults.
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  // The app is dark-only. Without this, native controls (selects, checkboxes,
+  // scrollbars, number spinners) render in light chrome against the slate.
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: ui-monospace, Menlo, monospace;
+  background: var(--surface-base);
+  color: var(--ink-primary);
+  // No overscroll bounce revealing white behind a dark app.
+  overscroll-behavior-y: none;
+}
+
+// Media never overflows its container — the precondition for every responsive
+// layout in later phases.
+img,
+svg,
+video {
+  max-width: 100%;
+}
+
+// Inputs don't inherit typography by default and every one of them wants to.
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+// Accessibility floor: a visible focus indicator everywhere, replacing the old
+// stylesheet's `outline: none` with no substitute. Individual components may
+// restyle this, but must never remove it.
+:focus-visible {
+  outline: var(--focus-ring) solid var(--accent);
+  outline-offset: 2px;
+}
+
+// Available to any screen: content for assistive tech only.
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// Keyboard-only escape hatch to the main content, paired with the <main> landmark.
+.skip-link {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+
+  &:focus {
+    transform: translateY(0);
+  }
+}

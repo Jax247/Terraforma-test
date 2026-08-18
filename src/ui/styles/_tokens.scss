@@ -1,0 +1,176 @@
+// Design tokens. The single source of truth for every colour, size and duration in the UI.
+//
+// Rule: no component stylesheet may contain a raw hex, px font-size, or transition duration.
+// If something isn't expressible here, add a token rather than reaching for a literal.
+//
+// Terrain colours are deliberately absent — they live in src/ui/theme.ts (TERRAIN_COLOR) and are
+// injected onto :root at boot by applyTerrainTokens(), so the engine-facing map stays authoritative.
+
+:root {
+  // ---- Surfaces -------------------------------------------------------------
+  // Cool slate, warmed slightly toward the parchment ink so the two don't fight.
+  --surface-sunken: #14161b; // page behind everything
+  --surface-base: #1b1d22; // app background
+  --surface-raised: #262a33; // panels, modals
+  --surface-overlay: #2e3340; // popovers, sheets, hover fills
+  --surface-inset: #333949; // cards, inputs, wells
+  --surface-scrim: #0b0c0fd9; // modal backdrop
+
+  // ---- Ink ------------------------------------------------------------------
+  // Warm off-white, not pure grey: it reads as parchment against the slate.
+  // These replace the old `opacity: 0.4–0.85` hierarchy hack, which produced the
+  // sub-AA contrast on .zone-row.unpickable and h4.
+  --ink-primary: #ece8df;
+  --ink-secondary: #b5b2a8;
+  // Contrast-audited: >= 4.5:1 against every surface token above, including
+  // --surface-inset, which is where most muted text actually sits. The pre-revamp
+  // equivalent (opacity 0.4-0.55) measured 3.2:1 and failed AA outright.
+  --ink-muted: #a5a29a;
+  --ink-inverse: #16181d; // on gold / on parchment / on light terrain
+
+  // ---- Borders --------------------------------------------------------------
+  --border-subtle: #2a2f3e;
+  --border-default: #3a4155;
+  --border-strong: #4a5165;
+
+  // ---- Accent ---------------------------------------------------------------
+  // Gold is the one accent. It already did all the emphasis work in the old
+  // stylesheet; here it gets a proper ramp instead of a single value.
+  --accent: #ffd75e;
+  --accent-strong: #ffc42e;
+  --accent-dim: #8a7333;
+  --accent-faint: #ffd75e1f;
+  --accent-ink: #2b2000; // text sitting on top of gold
+
+  // Parchment — the light counterpart, for card faces and inscriptions.
+  --parchment: #efe3ac;
+  --parchment-dim: #cfc094;
+
+  // ---- Card foil ------------------------------------------------------------
+  // The overlay treatment on a showcase card: art runs full-bleed and an inset
+  // hairline, corner brackets and a name plate are drawn OVER it. The sheen is a
+  // cool-steel/warm-parchment pair rather than the reference's cyber prismatics —
+  // a rainbow foil fights the dark-fantasy art the set actually has.
+  --foil-bright: #dbe4f0; // struck highlight on the hairline
+  --foil-warm: #f0e2c0; // warm turn of the sheen
+  --foil-shadow: #7d90a8; // where the hairline falls away
+  --card-plate: #0b0c0f; // name-plate ground, also the scrim it fades from
+  --card-edge: #05060a; // the dark bed the art sits on, visible at the rounded corners
+
+  // Mask stencils. NOT colours — `mask-image` needs an opaque paint to mean "keep
+  // this pixel", so this never renders and must not be themed.
+  --mask-keep: #000;
+
+  // ---- Semantic state -------------------------------------------------------
+  --state-select: #6ecbff; // current selection
+  --state-target: #ff8de1; // active targeting / prompts
+  --state-shoot: #e0603c; // ranged shot targets
+  --state-ok: #7fd0a8;
+  --state-warn: #ffcf7d;
+  --state-danger: #ff8d8d;
+  --state-info: #9ecbff;
+
+  // ---- Factions -------------------------------------------------------------
+  // Player identity. Paired with a shape channel on the board (Phase 4c) — colour
+  // alone is not an accessible signal.
+  --faction-0: #2f6fb3;
+  --faction-0-dim: #23507f;
+  --faction-0-glow: #2f6fb399;
+  --faction-1: #b3452f;
+  --faction-1-dim: #7f3122;
+  --faction-1-glow: #b3452f99;
+  // Text-safe tints. The fill colours above are for backgrounds; used as INK on a
+  // dark surface they measure ~3.1:1 and fail AA.
+  --faction-0-ink: #7ab0e6;
+  --faction-1-ink: #e8907a;
+
+  // ---- Typography -----------------------------------------------------------
+  --font-display: 'Cinzel', 'Iowan Old Style', Georgia, serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  // Scale. Replaces the old ad-hoc set (9,10,11,12,13,14,15,16,17,21,26,34px).
+  --text-3xs: 0.625rem; // 10px — coords, dense meta
+  --text-2xs: 0.6875rem; // 11px — micro-headings, tags
+  --text-xs: 0.75rem; // 12px — secondary UI
+  --text-sm: 0.8125rem; // 13px — body in dense panels
+  --text-base: 0.875rem; // 14px — default
+  --text-md: 1rem; // 16px
+  --text-lg: 1.125rem; // 18px
+  --text-xl: 1.375rem; // 22px — unit ATK, section titles
+  --text-2xl: 1.75rem; // 28px
+  --text-3xl: 2.25rem; // 36px — winner overlay, wordmark
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-loose: 1.65;
+
+  // Cinzel is all-caps by nature and needs air; Inter does not.
+  --tracking-display: 0.08em;
+  --tracking-label: 0.06em;
+  --tracking-normal: 0;
+
+  // ---- Spacing (4pt) --------------------------------------------------------
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  // ---- Radii ----------------------------------------------------------------
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  // ---- Elevation ------------------------------------------------------------
+  --shadow-1: 0 1px 2px #0006;
+  --shadow-2: 0 2px 6px #0007;
+  --shadow-3: 0 8px 24px #0009;
+  --glow-accent: 0 0 12px var(--accent-faint);
+
+  // ---- Motion ---------------------------------------------------------------
+  // Zeroed wholesale by the [data-motion] rules below. Never hard-code a duration.
+  --motion-fast: 120ms;
+  --motion-base: 220ms;
+  --motion-slow: 420ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  // ---- Layout ---------------------------------------------------------------
+  // The board's tile size is a variable so the 7x7 grid can fit any viewport.
+  // Phase 4b replaces the old hard-coded `repeat(7, 92px)` with this.
+  --tile: 92px;
+  --board-size: calc(var(--tile) * 7 + 12px);
+  --focus-ring: 2px;
+}
+
+// ---- Motion kill switch -----------------------------------------------------
+// src/ui/motion.ts stamps data-motion on <html>. `off` must genuinely stop
+// animation, not merely shorten it — automated runs depend on it (see the motion
+// policy: nothing awaits an animation, and nothing should be running either).
+
+:root[data-motion='reduced'] {
+  --motion-fast: 0ms;
+  --motion-base: 90ms;
+  --motion-slow: 90ms;
+}
+
+:root[data-motion='off'] {
+  --motion-fast: 0ms;
+  --motion-base: 0ms;
+  --motion-slow: 0ms;
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}

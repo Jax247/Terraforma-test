@@ -1,4 +1,4 @@
-// Simulation 9 — Aggro-Tempo (Skyfire vs Greenwarden): Ranged, Rooted, located-spell
+// Simulation 9 — Aggro-Tempo (Skyfire vs Greenwarden): Ranged, Anchored, located-spell
 // travel done right, punish-passives, and reach as aggro's out.
 import { describe, expect, it } from 'vitest';
 import { makeBoard } from '../board';
@@ -40,6 +40,7 @@ describe('Sim 9 — Ranged is reach/safety, not power', () => {
     expect(s.units[warden.id]!.pos).toEqual({ col: 4, row: 5 });
   });
 
+  // Emberhawk is range 1 (the default), so exact-range targeting leaves it exactly as ruled.
   it('Ranged reach is orthogonally adjacent only (POC working ruling)', () => {
     const s = skyfireGame();
     const hawk = debugSpawn(s, 'emberhawk', 0, { col: 4, row: 4 });
@@ -62,8 +63,8 @@ describe('Sim 9 — the punish-passive converts development turns into openings'
   });
 });
 
-describe('Sim 9 — Rooted is the structural displacement counter', () => {
-  it('a Rooted wall cannot be pushed off a spring', () => {
+describe('Sim 9 — Anchored is the structural displacement counter', () => {
+  it('a Anchored wall cannot be pushed off a spring', () => {
     let s = skyfireGame();
     teleport(s, 'leader0', { col: 2, row: 3 });
     const golem = debugSpawn(s, 'bulwarkGolem', 1, { col: 2, row: 4 }); // camping the spring tile
@@ -72,13 +73,13 @@ describe('Sim 9 — Rooted is the structural displacement counter', () => {
     expect(s.units[golem.id]!.pos).toEqual({ col: 2, row: 4 }); // immovable
   });
 
-  it('Rooted units fight and are attacked normally otherwise', () => {
+  it('Anchored units fight and are attacked normally otherwise', () => {
     let s = skyfireGame();
     const roc = debugSpawn(s, 'blazingRoc', 0, { col: 4, row: 4 }); // 40
     const golem = debugSpawn(s, 'bulwarkGolem', 1, { col: 4, row: 5 }); // 30
     s.units[golem.id]!.movedThisTurn = true; // isolate the stat check
     s = applyAction(s, { t: 'Move', unit: roc.id, to: { col: 4, row: 5 } });
-    expect(s.units[golem.id]).toBeUndefined(); // Rooted is not toughness
+    expect(s.units[golem.id]).toBeUndefined(); // Anchored is not toughness
   });
 });
 
@@ -121,7 +122,7 @@ describe('Sim 9 — located spell travel, done correctly this time', () => {
 });
 
 describe('Sim 9 — Divebomb: reach is aggro’s answer to the wall', () => {
-  it('+2 move lets a Roc route AROUND a Rooted line', () => {
+  it('+2 move lets a Roc route AROUND a Anchored line', () => {
     let s = skyfireGame();
     const roc = debugSpawn(s, 'blazingRoc', 0, { col: 4, row: 2 });
     // The wall across the middle.

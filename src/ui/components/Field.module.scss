@@ -1,0 +1,81 @@
+@use '../styles/mixins' as *;
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.label {
+  @include inscribed(var(--text-3xs));
+  color: var(--ink-muted);
+}
+
+.hint {
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+}
+
+// One control treatment for every input, select and textarea. The old stylesheet
+// had five near-identical variants (.name-input, .io, .deck-search, .knob input,
+// .ai-settings-field input) differing only by width.
+.control {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-sunken);
+  color: var(--ink-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  transition: border-color var(--motion-fast) var(--ease-out);
+
+  &::placeholder {
+    color: var(--ink-muted);
+  }
+
+  &:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+
+  // Note the focus ring is *added*, not swapped for the border colour — the old
+  // `outline: none; border-color: gold` left keyboard users with a 1px signal.
+  &:focus-visible {
+    @include focus-ring;
+    border-color: var(--accent);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.numeric {
+  @include numeric;
+  width: 5.5rem;
+  text-align: right;
+}
+
+.textarea {
+  min-height: 6rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-3xs);
+  resize: vertical;
+}
+
+// Value differs from the saved/default one — the workbench knobs rely on this.
+.dirty .control {
+  border-color: var(--accent);
+  color: var(--accent);
+}

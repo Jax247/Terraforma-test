@@ -1,3 +1,7 @@
 node_modules
 dist
 *.log
+.env
+
+# Generated placeholder card art (regenerate with `npm run art`); keep the manifest.
+public/card-art/*.jpg

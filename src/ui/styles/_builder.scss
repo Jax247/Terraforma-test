@@ -1,0 +1,199 @@
+@use 'mixins' as *;
+
+// Deck builder — three panes (pool / deck / meta). The panes are real scroll
+// regions rather than `max-height: calc(100vh - 90px)`, which breaks on phones
+// where the viewport chrome moves.
+
+.builder {
+  @include respond-to(xl) {
+    grid-template-columns: 21rem minmax(0, 1fr) 19rem;
+  }
+}
+
+.builder-pool,
+.builder-deck {
+  width: 100%;
+  min-width: 0;
+
+  @include respond-to(xl) {
+    max-height: calc(100dvh - 6rem);
+    @include scroll-region;
+  }
+}
+
+.builder-pool h4,
+.builder-deck h4 {
+  @include inscribed(var(--text-3xs));
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.pool-entry {
+  margin-bottom: var(--space-2);
+}
+
+.pool-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.pool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--space-2);
+  align-items: start;
+}
+
+// ---- Deck list rows ----------------------------------------------------------
+.deck-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+
+  &:hover {
+    background: var(--surface-inset);
+  }
+}
+
+.deck-row-name {
+  flex: 1;
+  min-width: 0;
+  @include truncate;
+}
+
+.deck-row-meta {
+  @include numeric;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+// ---- Deck status strip -------------------------------------------------------
+// DC against the cap is the constraint you actually build against, so it is a
+// persistent header rather than a line buried in a "Rules check" section.
+.deck-status {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 var(--space-3);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-2);
+}
+
+.deck-status-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.deck-status-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-md);
+  color: var(--ink-primary);
+  min-width: 0;
+  @include truncate;
+}
+
+.deck-meters {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 7rem;
+  flex: 1 1 7rem;
+}
+
+.meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  @include inscribed(var(--text-3xs));
+}
+
+.meter-value {
+  @include numeric;
+  font-size: var(--text-2xs);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink-primary);
+}
+
+.meter-bar {
+  height: 0.4rem;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  transition: width var(--motion-base) var(--ease-out);
+}
+
+.meter-over .meter-fill {
+  background: var(--state-danger);
+}
+
+.meter-over .meter-value {
+  color: var(--state-danger);
+}
+
+.meter-ok .meter-fill {
+  background: var(--state-ok);
+}
+
+// ---- Leader picker -----------------------------------------------------------
+.leader-row {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+// ---- Tweak dialog ------------------------------------------------------------
+.tweak {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.tweak label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.tweak input[type='number'],
+.tweak input[type='text'] {
+  width: 6rem;
+  background: var(--surface-sunken);
+  color: var(--ink-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}

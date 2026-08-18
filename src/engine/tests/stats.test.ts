@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { tileAt } from '../board';
 import { effectiveAtk, terrainMod } from '../stats';
 import { applyAction, debugSpawn } from '../engine';
-import { freshGame } from './helpers';
+import { freshGame, passRounds } from './helpers';
 
 describe('terrain chart (§11: one favored +10, one weak −10, uniform)', () => {
   it('matches the locked chart', () => {
@@ -144,7 +144,9 @@ describe('effectiveAtk — derived, never stored', () => {
     expect(effectiveAtk(s, u)).toBe(10);
     s = applyAction(s, { t: 'EndTurn' }); // P2's turn — status persists (ticks on OWNER's turn)
     expect(effectiveAtk(s, s.units[u.id]!)).toBe(10);
-    s = applyAction(s, { t: 'EndTurn' }); // P1's turn start — ticks to 0, expires
+    s = applyAction(s, { t: 'EndTurn' }); // P1's turn — ticks 1 -> 0 but stays live all turn
+    expect(effectiveAtk(s, s.units[u.id]!)).toBe(10);
+    s = passRounds(s, 1);                 // P1's next turn — already spent, retired
     expect(effectiveAtk(s, s.units[u.id]!)).toBe(30);
   });
 });

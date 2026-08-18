@@ -1,5 +1,22 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(npx vitest *)",
+      "Bash(npm run *)",
+      "Read(//private/tmp/**)",
+      "Bash(python3 -)",
+      "Bash(node --import ./scripts/register-ts-ext.mjs /tmp/dsprobe.mjs dragonspire)",
+      "Bash(sed -e \"s|makeGreedyPolicy } from|makeGreedyPolicy, makeExpertPolicy } from|\" -e \"s|const policy = makeGreedyPolicy\\(\\);|const policy = makeExpertPolicy\\(\\);|\" -e \"s|seed < 4|seed < 2|\" /tmp/dsprobe.mjs)",
+      "Bash(node --import ./scripts/register-ts-ext.mjs /tmp/dsexpert.mjs dragonspire)",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \\\\|Guard\\\\|Provoke\" \"Card & Keyword Vocabulary.md\")",
+      "Bash(npx tsc *)",
+      "Bash(npm test *)",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(cd *)",
+      "Bash(grep -vE \"^\\\\s*$\" /private/tmp/claude-501/-Users-jay-Code-test-terraforma-test/df3a8a21-d1ae-4901-a176-72381a149686/tasks/bo196ntzw.output)",
+      "Bash(grep -vE \"^\\\\s*$\" /tmp/spdeep.out)",
+      "Bash(node *)"
+    ],
     "additionalDirectories": [
       "/Users/jay/Documents/Vaults/Terraforma-Design"
     ]

@@ -1,0 +1,316 @@
+{
+  "bracedPikeman": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "briar": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "broodMatron": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "cairnMason": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 3,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "ironholdChampion": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "ironholdVeteran": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "kaelen": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "levyRecruit": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "linebreaker": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "neris": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "oskar": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "quarryhand": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "quarrymansWages": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "rallyTheRanks": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "rhodan": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 5,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "sable": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "shieldbearer": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "stonecutter": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 3,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "stoneSentinel": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "vessik": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "vharos": [
+    {
+      "n": 1,
+      "model": "Kontext Max"
+    },
+    {
+      "n": 2,
+      "model": "Grok Imagine"
+    },
+    {
+      "n": 3,
+      "model": "Nano Banana 2"
+    },
+    {
+      "n": 4,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "wallwardenBrant": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ],
+  "watchfulScout": [
+    {
+      "n": 1,
+      "model": "FLUX 2 Pro"
+    },
+    {
+      "n": 2,
+      "model": "FLUX 2 Pro"
+    }
+  ]
+}

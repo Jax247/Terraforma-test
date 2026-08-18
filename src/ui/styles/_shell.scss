@@ -1,0 +1,38 @@
+// App shell — everything outside a screen's own content.
+// The AppBar itself is a CSS module (components/AppBar.module.scss); this partial
+// owns the document-level frame around it.
+
+@use 'mixins' as *;
+
+#main {
+  display: block;
+  min-height: 0;
+  // Bottom room for the phone home indicator and, later, the hand sheet.
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+// Screens lay themselves out inside this; the shell only sets the gutter, which
+// tightens on small screens where 16px of each side is a meaningful fraction.
+.screen {
+  padding: var(--space-4);
+
+  @include below(sm) {
+    padding: var(--space-3) var(--space-2);
+  }
+}
+
+// Screen-level heading — one per screen, above the content.
+.screen-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  color: var(--ink-primary);
+}
+
+.screen-subtitle {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+}

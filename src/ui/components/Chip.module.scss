@@ -1,0 +1,92 @@
+@use '../styles/mixins' as *;
+
+// ---- StatChip ----------------------------------------------------------------
+// A labelled number: "ATK 50", "DC 12", "3 SP". Mono so columns of them align.
+.stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+// A stat chip has to sit inside containers that size themselves (the showcase card
+// scales its whole name plate with the tile), so both halves take their size from a
+// custom property. The fallback is the value they had before, which keeps every
+// existing caller byte-identical — only a container that sets these opts in.
+.statLabel {
+  @include inscribed(var(--stat-label-size, var(--text-3xs)));
+  color: var(--ink-muted);
+}
+
+.statValue {
+  @include numeric;
+  font-size: var(--stat-value-size, var(--text-sm));
+  font-weight: 500;
+  color: var(--ink-primary);
+}
+
+.accentValue .statValue {
+  color: var(--accent);
+}
+
+.warnValue .statValue {
+  color: var(--state-warn);
+}
+
+.dangerValue .statValue {
+  color: var(--state-danger);
+}
+
+// ---- Tag ---------------------------------------------------------------------
+// Keywords, card types, deck factions.
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface-inset);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.tagAccent {
+  border-color: var(--accent-dim);
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+.tagOk {
+  border-color: var(--state-ok);
+  color: var(--state-ok);
+  background: transparent;
+}
+
+.tagWarn {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+  background: transparent;
+}
+
+.tagDanger {
+  border-color: var(--state-danger);
+  color: var(--state-danger);
+  background: transparent;
+}
+
+// Interactive tags (keyword popover triggers) need to be real buttons.
+button.tag {
+  cursor: pointer;
+  font-family: inherit;
+
+  @include focusable;
+
+  &:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+}

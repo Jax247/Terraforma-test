@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { makeBoard, tileAt } from '../board';
 import { effectiveAtk, terrainMod } from '../stats';
 import { applyAction, debugSpawn } from '../engine';
-import { freshGame, teleport } from './helpers';
+import { autoBurn, freshGame, teleport } from './helpers';
 import { NERIS, TIDECALLER_CARDS } from '../content/simDecks';
 import type { GameState, Unit } from '../types';
 
@@ -45,13 +45,13 @@ describe('Sim 4 — the correction: displacement is a set-and-travel board proje
     s = applyAction(s, { t: 'MoveSet', set: setId, to: { col: 4, row: 3 } });
     expect(() => applyAction(s, { t: 'MoveSet', set: setId, to: { col: 4, row: 4 } }))
       .toThrow(/already moved/); // 1 tile per turn — the telegraph is real
-    s = applyAction(s, { t: 'EndTurn' });
-    s = applyAction(s, { t: 'EndTurn' }); // (the sim's swarm failed to dodge)
+    s = autoBurn(applyAction(s, { t: 'EndTurn' }));
+    s = autoBurn(applyAction(s, { t: 'EndTurn' })); // (the sim's swarm failed to dodge)
 
     // Turn 2 of travel.
     s = applyAction(s, { t: 'MoveSet', set: setId, to: { col: 4, row: 4 } });
-    s = applyAction(s, { t: 'EndTurn' });
-    s = applyAction(s, { t: 'EndTurn' });
+    s = autoBurn(applyAction(s, { t: 'EndTurn' }));
+    s = autoBurn(applyAction(s, { t: 'EndTurn' }));
 
     // Flip adjacent to the cluster: push all units in the 3×3 outward 1.
     s = applyAction(s, { t: 'FlipCard', set: setId, targets: [{ col: 5, row: 4 }] });

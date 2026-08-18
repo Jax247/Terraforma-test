@@ -3,8 +3,13 @@
 import { describe, expect, it } from 'vitest';
 import { makeBoard, tileAt } from '../board';
 import { effectiveAtk } from '../stats';
-import { applyAction, debugSpawn } from '../engine';
-import { freshGame, endUntil } from './helpers';
+import { applyAction, debugSpawn, isSick } from '../engine';
+import { freshGame, endUntil, withSummoningSickness } from './helpers';
+
+// These narratives were transcribed from the vault sims, which were played under the 1-turn
+// summoning-sickness rule. The tester's default became 0 on 2026-08-01; pin the rule the sim
+// was written for so the transcript keeps testing what it recorded.
+withSummoningSickness();
 
 function desertPack(s: ReturnType<typeof freshGame>) {
   // Carrion Swarm massed on Desert with 3 orthogonal allies — the sim-3 cluster.
@@ -79,7 +84,7 @@ describe('Sim 3 — recursion timing & the graveyard engine', () => {
     const raised = Object.values(s.units).find((u) => u.cardId === 'duneshambler' && u.owner === 1);
     expect(raised).toBeDefined();
     expect(raised!.pos).toEqual({ col: 4, row: 6 });
-    expect(raised!.summoningSick).toBe(true);
+    expect(isSick(raised!)).toBe(true);
     expect(s.players[1].graveyard).not.toContain('duneshambler');
   });
 

@@ -1,0 +1,45 @@
+@use '../styles/mixins' as *;
+
+.panel {
+  @include panel;
+  padding: var(--space-3);
+  min-width: 0; // so a panel inside a grid track can actually shrink
+}
+
+.flush {
+  padding: 0;
+}
+
+.sunken {
+  background: var(--surface-sunken);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+// The recurring device that ties every panel together: an inscribed label with a
+// thin gold rule beneath it.
+.title {
+  @include inscribed;
+  margin: 0;
+}
+
+.ruled {
+  @include rule-under;
+  margin-bottom: var(--space-3);
+}
+
+.aside {
+  @include numeric;
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+}
+
+.body {
+  min-width: 0;
+}

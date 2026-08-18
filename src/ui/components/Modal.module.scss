@@ -1,0 +1,74 @@
+@use '../styles/mixins' as *;
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--surface-scrim);
+  backdrop-filter: blur(2px);
+}
+
+// Detail-over-zone-list: one modal may sit above another.
+.top {
+  z-index: 46;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, 100%);
+  max-height: min(80vh, 46rem);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  // The gold top edge marks a modal as the foreground surface.
+  border-top: 2px solid var(--accent-dim);
+  overflow: hidden;
+
+  @include below(sm) {
+    // Full-height sheet on phones; a centred card wastes the screen.
+    width: 100%;
+    max-height: 92vh;
+  }
+}
+
+.wide {
+  width: min(56rem, 100%);
+}
+
+// Sized to a 3:4 card portrait, so the art fills the dialog's width instead of
+// sitting letterboxed in the middle of a wider one.
+.narrow {
+  width: min(26rem, 100%);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-base);
+  letter-spacing: var(--tracking-display);
+  color: var(--ink-primary);
+  margin: 0;
+}
+
+.body {
+  @include scroll-region;
+  padding: var(--space-4);
+  flex: 1;
+  min-height: 0;
+}

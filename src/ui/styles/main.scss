@@ -1,0 +1,21 @@
+// Entry point — the only stylesheet src/main.tsx imports.
+//
+// Order matters: tokens and fonts first (everything downstream reads them), then
+// the reset, then the screen partials. Component-scoped styles live beside their
+// components as *.module.scss and are not imported here.
+
+@use 'tokens';
+@use 'fonts';
+@use 'reset';
+
+// Shared chrome and controls.
+@use 'shell';
+@use 'misc';
+
+// Screens.
+@use 'setup';
+@use 'game';
+@use 'online';
+@use 'decks';
+@use 'builder';
+@use 'editor';

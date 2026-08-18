@@ -3,21 +3,37 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "server": "node server/main.ts",
+    "start": "node server/main.ts",
+    "ab": "node --import ./scripts/register-ts-ext.mjs scripts/ab.ts",
+    "art": "node --import ./scripts/register-ts-ext.mjs --env-file=.env scripts/genCardArt.ts",
+    "diagnose": "node --import ./scripts/register-ts-ext.mjs scripts/diagnose.ts",
+    "impact": "node --import ./scripts/register-ts-ext.mjs scripts/cardImpact.ts"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^13.1.0",
+    "lucide-react": "^1.31.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",
+    "sass": "^1.102.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vitest": "^2.1.8"

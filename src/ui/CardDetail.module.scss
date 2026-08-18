@@ -1,0 +1,74 @@
+@use './styles/mixins' as *;
+
+// The illustration picker in the card-detail modal. Only appears for cards that
+// actually have alternates (see `npm run art -- --variants=N`).
+
+.artPicker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.artPickerLabel {
+  @include inscribed;
+}
+
+.artPickerRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.artOption {
+  display: flex;
+  flex-direction: column;
+  width: 4.5rem;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+  @include focusable;
+
+  img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+  }
+
+  &:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-2px);
+  }
+}
+
+// Which engine drew this option. Wraps rather than truncates — a clipped model name is
+// worse than a two-line one when the whole point is telling them apart.
+.artOptionModel {
+  padding: 2px var(--space-1);
+  font-size: var(--text-3xs);
+  line-height: var(--leading-tight);
+  color: var(--ink-secondary);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.artOptionActive {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent);
+
+  .artOptionModel {
+    color: var(--accent);
+  }
+
+  &:hover {
+    border-color: var(--accent);
+  }
+}

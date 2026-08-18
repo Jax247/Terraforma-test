@@ -1,0 +1,410 @@
+@use '../styles/mixins' as *;
+
+// The card is the product's main visual object. Three variants, ONE frame:
+//   thumb — hand cards (framed card + action buttons under it)
+//   full  — deck viewer tiles (the frame and nothing else)
+//   hero  — detail panel / modal (framed card + keywords and rules under it)
+//
+// THE FRAME is a showcase card: the art runs full-bleed and everything that belongs
+// to the card face is composited over it — an inset foil hairline, corner brackets,
+// a cost badge and a level badge on the shoulders, and a name plate at the foot.
+//
+// Rules text and action buttons live OUTSIDE the frame, in `.body` / `.actions`. That
+// split is the reason `.frame` exists as its own region: it is what separates a framed
+// card from an illustration with a caption, and it lets all three variants share the
+// treatment while differing only in size and in what they hang underneath.
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  // ⚠ EXPLICIT, because a card with `onClick` and no actions renders as a <button>,
+  // and Firefox's UA stylesheet sets `align-items: center` on buttons. That stops the
+  // frame from being stretched to the card's width, and a frame with `aspect-ratio`
+  // and no width collapses to 0×0 — the deck viewer and the builder pool rendered
+  // nothing at all. Measured: tile 167×223 -> 167×0 with align-items: center.
+  align-items: stretch;
+  min-width: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+button.card,
+.interactive {
+  cursor: pointer;
+
+  @include focusable;
+
+  &:hover .frame {
+    box-shadow: var(--shadow-3);
+
+    &::before {
+      opacity: 1;
+    }
+  }
+}
+
+// ---- The frame ---------------------------------------------------------------
+.frame {
+  // Geometry. One place to retune the inset and how far the brackets run.
+  --frame-inset: 7px;
+  --frame-gap: 4px;
+  --bracket-run: 17%;
+
+  position: relative;
+  // Never inherit the width from flex stretch — see the note on `.card`. An explicit
+  // width keeps the aspect-ratio box resolvable no matter what a UA sheet does to the
+  // element that happens to be wrapping it.
+  width: 100%;
+  // The card IS the art, so the frame carries the portrait ratio.
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius-lg);
+  background: var(--card-edge);
+  overflow: hidden;
+  flex-shrink: 0;
+  // The same frame renders at ~136px in hand, ~150px in the deck grid and ~380px in
+  // the detail panel. A fixed type scale cannot serve that range — a plate sized for
+  // the large case ate 40% of a grid tile. Everything on the plate is therefore sized
+  // in `cqw`, clamped to the type scale at both ends.
+  container-type: inline-size;
+  transition: box-shadow var(--motion-fast) var(--ease-out);
+
+  // The foil hairline. The type accent is woven INTO the sheen rather than sitting
+  // beside it, so deck identity survives without a second coloured element (this
+  // replaced a 3px accent spine down the card's left edge).
+  //
+  // ⚠ BASE = a plain 1px border, and the gradient sheen is added only under @supports
+  // below. The sheen is a full-box gradient masked down to a ring, and a browser that
+  // drops `mask-composite` falls back to `add` (union) — which unmasks the whole box
+  // and washes a translucent gradient over the ENTIRE card. That does not degrade, it
+  // hides the art completely, so the masked version must never be the base rule.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: var(--frame-inset);
+    z-index: 3;
+    pointer-events: none;
+    border: 1px solid var(--card-accent, var(--foil-bright));
+    border-radius: calc(var(--radius-lg) - var(--frame-gap));
+    opacity: 0.72;
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+
+  @supports ((mask-composite: exclude) or (-webkit-mask-composite: xor)) {
+    &::before {
+      border: 0;
+      background: linear-gradient(
+        140deg,
+        var(--foil-bright),
+        var(--card-accent, var(--foil-warm)) 28%,
+        var(--foil-shadow) 52%,
+        var(--foil-bright) 74%,
+        var(--card-accent, var(--foil-warm))
+      );
+      // Paint only a 1px ring: fill the box, then punch out everything inside the
+      // padding edge. `exclude` of content-box from border-box is the ring.
+      padding: 1px;
+      mask:
+        linear-gradient(var(--mask-keep) 0 0) content-box,
+        linear-gradient(var(--mask-keep) 0 0);
+      mask-composite: exclude;
+      -webkit-mask-composite: xor;
+    }
+  }
+
+  // Corner brackets: a second, tighter rect masked down to its four corners. The
+  // horizontal and vertical stencils each keep only their end bands, and INTERSECTING
+  // them leaves the corner squares — so the border survives as four L-brackets.
+  //
+  // This one is safe to leave unguarded in principle (no mask = a plain second rect,
+  // which just reads as a double frame) but it is gated for the same reason anyway:
+  // the two rules should fail together rather than leave a half-drawn frame.
+  &::after {
+    content: '';
+    position: absolute;
+    inset: calc(var(--frame-inset) + var(--frame-gap));
+    z-index: 3;
+    pointer-events: none;
+    border: 1px solid var(--card-accent, var(--foil-bright));
+    border-radius: calc(var(--radius-lg) - var(--frame-gap) * 2);
+    opacity: 0.85;
+  }
+
+  @supports ((mask-composite: intersect) or (-webkit-mask-composite: source-in)) {
+    &::after {
+      mask-image:
+        linear-gradient(90deg, var(--mask-keep) 0 var(--bracket-run), transparent var(--bracket-run) calc(100% - var(--bracket-run)), var(--mask-keep) calc(100% - var(--bracket-run)) 100%),
+        linear-gradient(180deg, var(--mask-keep) 0 var(--bracket-run), transparent var(--bracket-run) calc(100% - var(--bracket-run)), var(--mask-keep) calc(100% - var(--bracket-run)) 100%);
+      mask-composite: intersect;
+      -webkit-mask-composite: source-in;
+    }
+  }
+}
+
+.highlighted .frame {
+  box-shadow: var(--glow-accent), var(--shadow-3);
+
+  &::before {
+    opacity: 1;
+  }
+}
+
+// ---- Art ---------------------------------------------------------------------
+.artWrap {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  // Art is generated per card and varies in mood; a touch of contrast keeps the
+  // set coherent without flattening it.
+  filter: saturate(1.05);
+}
+
+// Stand-in for a card whose art hasn't been generated yet: the type accent washed
+// over the plate, with the card's initial engraved into it.
+.artFallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, var(--card-accent, var(--border-strong)) 0%, transparent 70%),
+    var(--surface-sunken);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(var(--text-xl), 22cqw, var(--text-3xl));
+  color: var(--card-plate);
+  user-select: none;
+}
+
+// Same idea at portrait scale, for list rows.
+.portraitFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 40%, var(--card-accent, var(--border-strong)) 0%, transparent 75%),
+    var(--surface-sunken);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  color: var(--ink-inverse);
+  user-select: none;
+}
+
+// ---- The name plate ----------------------------------------------------------
+.plate {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  // Bottom padding must clear the foil and the brackets, or the stat row sits on the
+  // card's edge outside its own frame.
+  padding: 8cqw var(--space-2) max(var(--space-4), 5.5cqw);
+  text-align: center;
+  // Two layers: the plate's own top edge — a struck hairline fading out at both ends,
+  // so the type sits ON something rather than just in a gradient — over a long fade,
+  // because the art needs to survive behind the type.
+  //
+  // ⚠ No `color-mix()` here. One unsupported value invalidates the WHOLE shorthand,
+  // which would take the scrim with it and leave pale type on bright art. The hairline
+  // is softened with gradient stops instead, which every browser can parse.
+  background:
+    linear-gradient(
+        90deg,
+        transparent,
+        var(--card-accent, var(--foil-bright)) 45%,
+        var(--card-accent, var(--foil-bright)) 55%,
+        transparent
+      )
+      top center / 76% 1px no-repeat,
+    linear-gradient(180deg, transparent, var(--card-plate) 72%);
+}
+
+.name {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(var(--text-2xs), 5.6cqw, var(--text-lg));
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-tight);
+  color: var(--ink-primary);
+}
+
+.nameText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.count {
+  @include numeric;
+  flex-shrink: 0;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: clamp(var(--text-3xs), 3.2cqw, var(--text-xs));
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: clamp(var(--text-3xs), 3.6cqw, var(--text-base));
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-secondary);
+}
+
+.stats {
+  --stat-value-size: clamp(var(--text-2xs), 5cqw, var(--text-lg));
+  --stat-label-size: clamp(var(--text-3xs), 3.2cqw, var(--text-sm));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 max(var(--space-2), 4cqw);
+  margin-top: 1cqw;
+}
+
+// ---- Shoulder badges ---------------------------------------------------------
+// Cost on the left (what it takes to play), level on the right (what it is).
+.cost,
+.level {
+  @include numeric;
+  position: absolute;
+  top: max(var(--space-2), 3.5cqw);
+  z-index: 4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: clamp(var(--text-3xs), 3.4cqw, var(--text-sm));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cost {
+  left: max(var(--space-2), 3.5cqw);
+  background: var(--surface-scrim);
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+}
+
+.level {
+  right: max(var(--space-2), 3.5cqw);
+  background: var(--surface-scrim);
+  border: 1px solid var(--border-strong);
+  color: var(--ink-primary);
+}
+
+// ---- Body (outside the frame) ------------------------------------------------
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 0;
+  min-width: 0;
+}
+
+.keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-loose);
+  color: var(--ink-secondary);
+}
+
+// Actions row (hand cards): summon / cast / set / burn.
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+// The inspect target on a card that also carries action buttons — nested buttons
+// are invalid, so the frame becomes the clickable region instead.
+.inspect {
+  display: flex;
+  flex-direction: column;
+  // Same UA-stylesheet trap as `.card`: this is a <button> too, so it must not inherit
+  // `align-items: center` and squash the frame it wraps.
+  align-items: stretch;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  @include focusable;
+}
+
+// ---- Variant: thumb ----------------------------------------------------------
+.thumb {
+  width: 8.5rem;
+
+  // At 136px the plate can afford a name and the stats, but not a third line.
+  .meta {
+    display: none;
+  }
+}
+
+// ---- Variant: full -----------------------------------------------------------
+// The deck tile is exactly the frame — no body, no actions.
+.full {
+  width: 100%;
+}
+
+// ---- Variant: hero -----------------------------------------------------------
+.hero {
+  width: 100%;
+
+  .frame {
+    // The detail panel is the one place with room to show the card large, but a tall
+    // portrait must not push the rules text past the fold on a short viewport.
+    //
+    // ⚠ The cap is derived as a WIDTH. Setting `max-height` next to `aspect-ratio`
+    // does not shrink the box — it just lets the ratio be violated, which squashes
+    // the card. Deriving width from the height budget keeps 3:4 exactly.
+    width: min(100%, calc(min(58vh, 32rem) * 3 / 4));
+    margin: 0 auto;
+  }
+
+  .rules {
+    font-size: var(--text-base);
+  }
+}
+
+// Art is incremental; a card with no file still gets the frame and its plate.
+.noArt .art,
+.noArt .artWrap {
+  display: none;
+}

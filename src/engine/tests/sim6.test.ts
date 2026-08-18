@@ -3,8 +3,13 @@
 import { describe, expect, it } from 'vitest';
 import { makeBoard, tileAt, leaderOf } from '../board';
 import { effectiveAtk } from '../stats';
-import { applyAction, debugSpawn } from '../engine';
-import { freshGame, endUntil, teleport } from './helpers';
+import { applyAction, debugSpawn, isSick } from '../engine';
+import { freshGame, endUntil, teleport, withSummoningSickness } from './helpers';
+
+// These narratives were transcribed from the vault sims, which were played under the 1-turn
+// summoning-sickness rule. The tester's default became 0 on 2026-08-01; pin the rule the sim
+// was written for so the transcript keeps testing what it recorded.
+withSummoningSickness();
 import { COGSWORTH, IRONWORKS_CARDS } from '../content/simDecks';
 import type { GameState } from '../types';
 
@@ -33,7 +38,7 @@ describe('Sim 6 — Assemble: leader-driven fusion', () => {
     const colossus = Object.values(s.units).find((u) => u.cardId === 'ironColossus');
     expect(colossus).toBeDefined();
     expect(colossus!.pos).toEqual({ col: 5, row: 6 }); // second material's tile
-    expect(colossus!.summoningSick).toBe(true);
+    expect(isSick(colossus!)).toBe(true);
     expect(s.players[1].fusionPool).toEqual([]);
     // Standing on Mountain: 75 + 10 terrain + 10 Cogsworth passive = 95.
     // DISCREPANCY (surfaced): sim-6 quoted "85 on Mountain" — one +10, not two. Whether a

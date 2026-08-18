@@ -1,4 +1,6 @@
+import { afterEach, beforeEach } from 'vitest';
 import { applyAction, initGame, type GameConfig } from '../engine';
+import { resetRules, setRules } from '../rules';
 import {
   BRIAR,
   GRAVEMARCH_CARDS,
@@ -42,21 +44,32 @@ export function freshGame(o: FixtureOverrides = {}): GameState {
   return initGame(cfg);
 }
 
-/** End turns until it is the given player's action phase. */
-export function endUntil(s: GameState, player: 0 | 1): GameState {
+/** Resolve any pending hand-cap burn (fixtures burn the oldest card). */
+export function autoBurn(s: GameState): GameState {
   let cur = s;
   let guard = 0;
+  while (cur.pendingBurn) {
+    cur = applyAction(cur, { t: 'BurnCard', index: 0 });
+    if (++guard > 10) throw new Error('autoBurn runaway');
+  }
+  return cur;
+}
+
+/** End turns until it is the given player's action phase (auto-burning at the hand cap). */
+export function endUntil(s: GameState, player: 0 | 1): GameState {
+  let cur = autoBurn(s);
+  let guard = 0;
   while (cur.active !== player) {
-    cur = applyAction(cur, { t: 'EndTurn' });
+    cur = autoBurn(applyAction(cur, { t: 'EndTurn' }));
     if (++guard > 10) throw new Error('endUntil runaway');
   }
   return cur;
 }
 
-/** Skip N full rounds (both players pass). */
+/** Skip N full rounds (both players pass, auto-burning at the hand cap). */
 export function passRounds(s: GameState, n: number): GameState {
-  let cur = s;
-  for (let i = 0; i < n * 2; i++) cur = applyAction(cur, { t: 'EndTurn' });
+  let cur = autoBurn(s);
+  for (let i = 0; i < n * 2; i++) cur = autoBurn(applyAction(cur, { t: 'EndTurn' }));
   return cur;
 }
 
@@ -70,6 +83,29 @@ export function teleport(s: GameState, unitId: string, pos: { col: number; row: 
   from.occupant = undefined;
   to.occupant = { kind: 'unit', id: u.id };
   u.pos = { ...pos };
+}
+
+/**
+ * Pin summoning sickness ON for the enclosing suite. The tester's default became 0 on
+ * 2026-08-01, but the sim suites transcribe vault narratives that were played under the 1-turn
+ * rule, and a few engine tests exist specifically to cover sickness interactions — both want the
+ * rule they were written for, not whatever the current default happens to be. Call inside a
+ * `describe`; RULES is global, so the reset is what keeps it from leaking to other files.
+ */
+export function withSummoningSickness(): void {
+  beforeEach(() => setRules({ summoningSickTurns: 1 }));
+  afterEach(() => resetRules());
+}
+
+/**
+ * Pin the pre-2026-08-09 SP curve (4/7/8, `spStep: 3`). The shipping step is now 1, so the curve
+ * runs 4/5/6/7/8 and the top end arrives on turn 5 instead of turn 3 — a deliberate feel change.
+ * The sim transcripts were RECORDED against the old curve, so they keep testing what they recorded,
+ * exactly as `withSummoningSickness` does for the sickness rule.
+ */
+export function withLegacySpCurve(): void {
+  beforeEach(() => setRules({ spStep: 3 }));
+  afterEach(() => resetRules());
 }
 
 export { GRAVEMARCH_CARDS };
