@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { applyAction, debugSpawn, legalActions } from '../engine';
 import { makeBoard, rangedTargets, sameCoord } from '../board';
 import { freshGame } from './helpers';
-import type { CardDef, Coord, GameState } from '../types';
+import type { CardDef, Coord, GameState, Terrain } from '../types';
 
 const CARDS: Record<string, CardDef> = {
   bow1: {
@@ -40,6 +40,14 @@ const CARDS: Record<string, CardDef> = {
 /** Neutral 7×7 so terrain never skews an ATK comparison. */
 function game(): GameState {
   return freshGame({ board: makeBoard(() => 'Normal'), extraCards: CARDS });
+}
+
+/** Same 7x7, but with named tiles painted. Keys are `col,row`. */
+function terrainGame(painted: Record<string, Terrain>): GameState {
+  return freshGame({
+    board: makeBoard((c) => painted[`${c.col},${c.row}`] ?? 'Normal'),
+    extraCards: CARDS,
+  });
 }
 
 const shoot = (s: GameState, unit: string, target: Coord) =>
@@ -188,5 +196,64 @@ describe('retaliation requires reach', () => {
     const prey = debugSpawn(s, 'chaff', 1, { col: 4, row: 4 }); // 10
     const after = shoot(s, bow.id, prey.pos);
     expect(after.players[1].leaderLife).toBe(200 - 30);
+  });
+});
+
+/**
+ * Terrain on a SHOT (playtest fix, 2026-08-17).
+ *
+ * Melee resolves both combatants on the defended tile because the attacker walks onto the
+ * battlefield ([[Combat Resolution]] — "terrain is resolved on the DEFENDED tile"). A shooter does
+ * not: it fires from where it stands and stays there. Until now it read the target's terrain
+ * anyway, so an archer parked in its own favoured ground lost the +10 the moment it shot at
+ * anything standing off it — the exact opposite of what holding good ground is supposed to buy.
+ *
+ * Every bow and body here is a Warrior: favoured Grassland (+10), weak Shadow (-10).
+ */
+describe("terrain on a shot resolves on the SHOOTER's own tile", () => {
+  it('a shooter on its favoured terrain keeps the +10 when firing at a target off it', () => {
+    const s = terrainGame({ '4,2': 'Grassland' });
+    const bow = debugSpawn(s, 'bow2', 0, { col: 4, row: 2 });   // 40 + 10 grassland = 50
+    const prey = debugSpawn(s, 'chaff', 1, { col: 4, row: 4 }); // 10 on Normal
+    const after = shoot(s, bow.id, prey.pos);
+    expect(after.units[prey.id]).toBeUndefined();
+    expect(after.players[1].leaderLife).toBe(200 - 40); // 50 - 10, not the old 40 - 10
+  });
+
+  it('and still eats the -10 for firing from its weak terrain', () => {
+    const s = terrainGame({ '4,2': 'Shadow' });
+    const bow = debugSpawn(s, 'bow2', 0, { col: 4, row: 2 });   // 40 - 10 shadow = 30
+    const prey = debugSpawn(s, 'chaff', 1, { col: 4, row: 4 });
+    const after = shoot(s, bow.id, prey.pos);
+    expect(after.players[1].leaderLife).toBe(200 - 20);
+  });
+
+  it("the TARGET's terrain no longer bleeds onto the shooter", () => {
+    // Only the defender is buffed by the ground it is defending, which is the whole point of
+    // standing on it. The shooter, two tiles away, is unaffected by it either way.
+    const s = terrainGame({ '4,4': 'Grassland' });
+    const bow = debugSpawn(s, 'bow2', 0, { col: 4, row: 2 });   // 40 on Normal
+    const prey = debugSpawn(s, 'chaff', 1, { col: 4, row: 4 }); // 10 + 10 = 20
+    const after = shoot(s, bow.id, prey.pos);
+    expect(after.units[prey.id]).toBeUndefined();
+    expect(after.players[1].leaderLife).toBe(200 - 20); // 40 - 20, not the old 50 - 20
+  });
+
+  it("an archer duel is decided by each shooter's own ground", () => {
+    const s = terrainGame({ '4,2': 'Grassland' });
+    const mine = debugSpawn(s, 'bow2', 0, { col: 4, row: 2 });   // 40 + 10 = 50
+    const theirs = debugSpawn(s, 'bow2', 1, { col: 4, row: 4 }); // 40 on Normal
+    const after = shoot(s, mine.id, theirs.pos);
+    expect(after.units[mine.id]).toBeDefined();    // was a 40-40 mutual destruction before
+    expect(after.units[theirs.id]).toBeUndefined();
+  });
+
+  it('MELEE is unchanged — both sides still resolve on the defended tile', () => {
+    const s = terrainGame({ '4,4': 'Grassland' });
+    const brute = debugSpawn(s, 'brute', 0, { col: 4, row: 3 }); // 60 on Normal, +10 on arrival
+    const bow = debugSpawn(s, 'bow2', 1, { col: 4, row: 4 });    // 40 + 10 = 50
+    const after = applyAction(s, { t: 'Move', unit: brute.id, to: bow.pos });
+    expect(after.units[bow.id]).toBeUndefined();
+    expect(after.players[1].leaderLife).toBe(200 - 20); // 70 - 50: the attacker inherits the tile
   });
 });

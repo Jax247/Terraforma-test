@@ -370,6 +370,20 @@ function canStillShoot(s: GameState, u: Unit): boolean {
 }
 
 /**
+ * The ATK a threat would actually land on `target`'s tile.
+ *
+ * Melee and a shot differ in one term: a shooter never leaves its tile, so its terrain resolves
+ * where it stands rather than on the battle tile (see `effectiveAtk`). A unit that could do either
+ * is priced at the better of the two, because that is the one it would pick.
+ */
+function threatAtk(s: GameState, t: Unit, target: Unit, adjacent: boolean, shooting: boolean): number {
+  const ctx = { role: 'attacker' as const, battleTile: target.pos, opponentId: target.id };
+  const melee = adjacent ? effectiveAtk(s, t, ctx) : -Infinity;
+  const shot = shooting ? effectiveAtk(s, t, { ...ctx, ranged: true }) : -Infinity;
+  return Math.max(melee, shot);
+}
+
+/**
  * The worst attack `u` could face on the opponent's next action, as combat would actually
  * resolve it — total effective ATK at u's own tile, flank included.
  *
@@ -394,7 +408,7 @@ function worstIncomingAttack(s: GameState, u: Unit): { worstAtk: number; worstDe
     const adjacent = orthAdjacent(u.pos).some((c) => sameCoord(c, t.pos));
     const shooting = hasKeyword(t, 'Ranged') && rangedTargets(s, t).some((c) => sameCoord(c, u.pos));
     if (!adjacent && !shooting) continue;
-    const eff = effectiveAtk(s, t, { role: 'attacker', battleTile: u.pos, opponentId: u.id });
+    const eff = threatAtk(s, t, u, adjacent, shooting);
     // Leaders neither grant nor receive a flank bonus.
     const flank = t.isLeader
       ? 0
@@ -591,7 +605,7 @@ function sideScore(s: GameState, p: PlayerId, threatWeight: number, lifeWeight: 
     const shooting = hasKeyword(t, 'Ranged')
       && rangedTargets(s, t).some((c) => sameCoord(c, myLeader.pos));
     if (!adjacent && !shooting) continue;
-    score -= chipPrice * effectiveAtk(s, t, { role: 'attacker', battleTile: myLeader.pos, opponentId: myLeader.id });
+    score -= chipPrice * threatAtk(s, t, myLeader, adjacent, shooting);
   }
 
   // GUARD (pin): credit for enemies our Guards are holding. Its own loop rather than a line in the

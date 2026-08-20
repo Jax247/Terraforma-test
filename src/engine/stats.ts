@@ -1,7 +1,7 @@
 import { BOARD_SIZE, chebyshev, mooreAdjacent, orthAdjacent, tileAt, unitAt } from './board';
 import { RULES } from './rules';
 import { hasKeyword, isSuppressed } from './status';
-import type { CombatCtx, Condition, CountSpec, GameState, PlayerId, TargetSpec, Terrain, TypeName, Unit } from './types';
+import type { CombatCtx, Condition, Coord, CountSpec, GameState, PlayerId, TargetSpec, Terrain, TypeName, Unit } from './types';
 
 /** Rules Spec §11 — one favored (+10), one weak (−10) per type, uniform. */
 const CHART: Record<TypeName, { favored: Terrain; weak: Terrain }> = {
@@ -60,8 +60,9 @@ function evalCount(s: GameState, unit: Unit, spec: CountSpec): number {
  * base + auras (own passives, leader passives, Frenzy) + timed statuses + terrain.
  * Pure compute-on-read: "recompute on any mutation" holds by construction.
  *
- * In combat, terrain resolves on the DEFENDED tile for both combatants (§5);
- * outside combat (display, conditions) a unit reads its own tile.
+ * In MELEE combat, terrain resolves on the DEFENDED tile for both combatants (§5); in a ranged
+ * exchange each combatant reads its own tile; outside combat (display, conditions) a unit reads
+ * its own tile.
  */
 /**
  * Everything a condition may need to read. Every field is optional, and a condition whose inputs
@@ -86,6 +87,23 @@ export interface ConditionCtx {
    * legal: `effectiveAtk` never calls `effectiveDef`, so there is no cycle in that direction.
    */
   insideAtk?: boolean;
+}
+
+/**
+ * Which tile's terrain a combatant fights on.
+ *
+ * Melee is "the tile being moved upon is the battlefield" (§5): the attacker walks into contact
+ * and BOTH sides resolve on the defended tile. A shot is not that fight — the shooter never leaves
+ * the ground it chose, so it keeps its own terrain, favourable or hostile. (Found in playtesting
+ * 2026-08-17: an archer standing in its favoured terrain lost the +10 whenever it fired at
+ * anything off that terrain, because this used the battle tile unconditionally.)
+ *
+ * The defender is on the battle tile by construction (`battleTile = defender.pos`), so `unit.pos`
+ * is the same tile for it either way — only the attacker's reading actually changes.
+ */
+function terrainTile(unit: Unit, ctx?: CombatCtx): Coord {
+  if (!ctx || ctx.ranged) return unit.pos;
+  return ctx.battleTile;
 }
 
 function assertNever(x: never): never {
@@ -199,9 +217,8 @@ export function conditionHolds(s: GameState, cond: Condition | undefined, ctx: C
 export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number {
   let atk = unit.baseAtk;
 
-  // Terrain: battle tile in combat, own tile otherwise.
-  const terrainTile = ctx ? ctx.battleTile : unit.pos;
-  atk += terrainMod(unit.type, tileAt(s.board, terrainTile).terrain);
+  // Terrain: the battle tile in melee combat, this unit's own tile otherwise (see `terrainTile`).
+  atk += terrainMod(unit.type, tileAt(s.board, terrainTile(unit, ctx)).terrain);
 
   // Frenzy: +5 per orthogonally adjacent allied unit, max +20. Continuously re-evaluated.
   if (hasKeyword(unit, 'Frenzy')) {
@@ -275,8 +292,7 @@ export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number 
  * an ATK keyword about massing bodies, and a defensive twin is a separate design question.
  */
 export function effectiveDef(s: GameState, unit: Unit, ctx?: CombatCtx): number {
-  const terrainTile = ctx ? ctx.battleTile : unit.pos;
-  let def = unit.baseDef + terrainMod(unit.type, tileAt(s.board, terrainTile).terrain);
+  let def = unit.baseDef + terrainMod(unit.type, tileAt(s.board, terrainTile(unit, ctx)).terrain);
 
   // Own passive auras (self-targeted, like the ATK side).
   //
