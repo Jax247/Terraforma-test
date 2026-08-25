@@ -642,6 +642,12 @@ export type Action =
 
 export interface CombatCtx {
   role: 'attacker' | 'defender';
-  battleTile: Coord;   // the defended tile — terrain resolves here for BOTH combatants
+  battleTile: Coord;   // the defended tile — terrain resolves here for both MELEE combatants
   opponentId: string;
+  /**
+   * This exchange is a shot, not a contact fight. Terrain then resolves on each combatant's OWN
+   * tile (see `effectiveAtk`): the shooter never enters the battlefield, so it keeps the ground it
+   * is standing on. Absent means melee, the pre-2026-08-17 behaviour.
+   */
+  ranged?: boolean;
 }

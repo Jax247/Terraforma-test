@@ -3,5 +3,5 @@ dist
 *.log
 .env
 
-# Generated placeholder card art (regenerate with `npm run art`); keep the manifest.
-public/card-art/*.jpg
+# Local-only backup of the pre-WebP card art originals; not for the repo.
+card-art-jpg-backup.tar.gz

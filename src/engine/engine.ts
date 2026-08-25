@@ -1297,7 +1297,10 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
   // who you end up fighting.
   if (!fireCombatTriggers(s, attacker, defender)) return;
   const battleTile = defender.pos;
-  const aEff = effectiveAtk(s, attacker, { role: 'attacker', battleTile, opponentId: defender.id });
+  // A shot leaves the shooter where it stands, so terrain resolves per-tile rather than on the
+  // battle tile for both — see `terrainTile` in stats.ts.
+  const ranged = opts.ranged === true;
+  const aEff = effectiveAtk(s, attacker, { role: 'attacker', battleTile, opponentId: defender.id, ranged });
 
   if (defender.isLeader) {
     // Attritional: chip lands FIRST (even if the attacker dies to the counter), then strikeback. No advance.
@@ -1305,7 +1308,7 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
     log(s, `${attacker.name} hits leader ${defender.name} for ${aEff} (LP ${s.players[defender.owner].leaderLife})`);
     checkWin(s);
     if (s.winner !== undefined) return;
-    const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id });
+    const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id, ranged });
     if (dEff >= aEff) {
       if (attacker.isLeader) {
         // TODO(open): leader-vs-leader is unruled. Working ruling: a leader is never
@@ -1339,8 +1342,8 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
 
   if (attacker.isLeader) {
     // Leader attacks a unit in ATTACK stance: binary for the unit, attritional for the leader.
-    const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id });
-    const helpless = cannotStrikeBack(defender) || !canRetaliate(s, defender, attacker, opts.ranged === true);
+    const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id, ranged });
+    const helpless = cannotStrikeBack(defender) || !canRetaliate(s, defender, attacker, ranged);
     if (aEff > dEff || (helpless && aEff === dEff)) {
       destroyUnit(s, defender.id);
       log(s, `leader ${attacker.name} (${aEff}) kills ${defender.name} (${dEff})`);
@@ -1361,11 +1364,11 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
     return;
   }
 
-  const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id });
+  const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id, ranged });
   const aTot = aEff + flankBonus(s, attacker, battleTile);
   // A defender that cannot hurt its attacker loses ties, and a losing attacker bounces off
   // instead of dying. Two ways to be harmless: denied your offence, or unable to REACH.
-  const helpless = cannotStrikeBack(defender) || !canRetaliate(s, defender, attacker, opts.ranged === true);
+  const helpless = cannotStrikeBack(defender) || !canRetaliate(s, defender, attacker, ranged);
   if (aTot > dEff || (helpless && aTot === dEff)) {
     const overflow = aTot - dEff;
     s.players[defender.owner].leaderLife -= overflow;
@@ -1425,7 +1428,7 @@ function resolveDefenseCombat(
   opts: { advance: boolean; ranged?: boolean },
 ): void {
   const aTot = aEff + (attacker.isLeader ? 0 : flankBonus(s, attacker, battleTile));
-  const wall = effectiveDef(s, defender, { role: 'defender', battleTile, opponentId: attacker.id });
+  const wall = effectiveDef(s, defender, { role: 'defender', battleTile, opponentId: attacker.id, ranged: opts.ranged === true });
 
   if (aTot > wall) {
     // Wall broken. LP passes only if the attacker Pierces (trample the excess).
