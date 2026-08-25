@@ -6,7 +6,7 @@
 // theme (biome / palette / mood) and a per-type creature descriptor, so every
 // card in an archetype reads as the same world.
 //
-// It is INCREMENTAL: art is keyed by card id and written to public/card-art/<id>.jpg.
+// It is INCREMENTAL: art is keyed by card id and written to public/card-art/<id>.webp.
 // Existing files are skipped, so when new cards appear during deck creation you
 // just re-run this and only the newcomers are generated. Seeds are derived from
 // the card id, so a regenerate reproduces the same image.
@@ -37,7 +37,7 @@
 // instead of the generated recipe. The recipe exists for COHESION across the whole set; overrides
 // are for the few cards worth directing individually (leaders, a signature body).
 //
-// ALTERNATES: variant 1 is `<id>.jpg`, alternates are `<id>-2.jpg`, `<id>-3.jpg`, …
+// ALTERNATES: variant 1 is `<id>.webp`, alternates are `<id>-2.webp`, `<id>-3.webp`, …
 // Each re-rolls the whole visual recipe (pose, camera, lighting, feature), not just the
 // diffusion seed, so the options are genuinely different pictures. `variants.json` indexes
 // which cards have more than one, and the in-game card detail panel lets you pick.
@@ -47,6 +47,7 @@
 import { mkdir, readFile, readdir, writeFile, access } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
 import { DECKS, DECK_TOKENS } from '../src/engine/content/decks/index.ts';
 import type { CardDef, LeaderDef, TokenDef, TypeName, Keyword } from '../src/engine/types.ts';
@@ -76,8 +77,8 @@ const ONLY = new Set(val('only', '').split(',').map((s) => s.trim()).filter(Bool
 // though: five cards lost 8 consecutive rolls, hence the sanitizer fallback below.
 const RETRIES = Math.max(1, parseInt(val('retries', '3'), 10) || 3);
 // How many ALTERNATE illustrations to hold per card. Variant 1 keeps the bare
-// `<id>.jpg` name so nothing that already points at art has to change; 2..N are
-// `<id>-2.jpg`, `<id>-3.jpg`. The UI reads the count from variants.json and lets
+// `<id>.webp` name so nothing that already points at art has to change; 2..N are
+// `<id>-2.webp`, `<id>-3.webp`. The UI reads the count from variants.json and lets
 // the player pick, so generating alternates is how you get a choice worth making.
 //
 // ⚠ Mutually exclusive with `--models`, which derives the count from the model list instead.
@@ -581,11 +582,11 @@ function assignVariety(entries: Entry[]): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Where variant `n` of a card's art lives. Variant 1 is the bare `<id>.jpg` so every
+ * Where variant `n` of a card's art lives. Variant 1 is the bare `<id>.webp` so every
  * existing file and every consumer keeps working; alternates are suffixed.
  */
 export function artFileName(id: string, n: number): string {
-  return n <= 1 ? `${id}.jpg` : `${id}-${n}.jpg`;
+  return n <= 1 ? `${id}.webp` : `${id}-${n}.webp`;
 }
 
 /**
@@ -935,6 +936,26 @@ function seedFor(id: string, n = 1): number {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// ---------------------------------------------------------------------------
+// Encoding
+// ---------------------------------------------------------------------------
+
+// Providers hand back multi-megabyte JPEGs at up to 2K. Cards render at roughly 384px
+// wide, so 768x1024 is already 2x for retina; keeping the raw bytes cost ~4.5x the
+// repo size for pixels no one sees. The art is committed to the repo, so this runs on
+// every write rather than as a separate optimize pass that someone will forget.
+const ART_MAX_WIDTH = 768;
+const ART_MAX_HEIGHT = 1024;
+const ART_WEBP_QUALITY = 82;
+
+/** Normalize provider bytes to the committed on-disk form: WebP, bounded, never upscaled. */
+async function encodeArt(bytes: Uint8Array): Promise<Buffer> {
+  return sharp(bytes)
+    .resize({ width: ART_MAX_WIDTH, height: ART_MAX_HEIGHT, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: ART_WEBP_QUALITY, effort: 6 })
+    .toBuffer();
+}
+
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`download ${r.status} ${url}`);
@@ -1049,7 +1070,7 @@ async function loadManifest(): Promise<Record<string, ManifestRow>> {
 async function writeVariantIndex(): Promise<void> {
   const found: Record<string, number[]> = {};
   for (const name of await readdir(OUT_DIR)) {
-    const m = /^(.+?)(?:-(\d+))?\.jpg$/.exec(name);
+    const m = /^(.+?)(?:-(\d+))?\.webp$/.exec(name);
     if (!m) continue;
     const id = m[1]!;
     (found[id] ??= []).push(m[2] ? parseInt(m[2], 10) : 1);
@@ -1181,7 +1202,7 @@ async function main() {
             await sleep(3000 * attempt);
           }
         }
-        await writeFile(join(OUT_DIR, file), bytes!);
+        await writeFile(join(OUT_DIR, file), await encodeArt(bytes!));
         // Keyed by FILE, not by card: a card with alternates has one row per image.
         // `usedSeed`, not `seed`: an aspect retry moves the seed, and recording the one we asked
         // for rather than the one that worked would make the row unreproducible.

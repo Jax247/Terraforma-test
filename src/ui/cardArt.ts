@@ -1,7 +1,7 @@
 // Which illustration a card wears.
 //
 // `npm run art -- --variants=N` generates alternates: variant 1 keeps the bare
-// `<id>.jpg` name, alternates are `<id>-2.jpg`, `<id>-3.jpg`. This module owns the two
+// `<id>.webp` name, alternates are `<id>-2.webp`, `<id>-3.webp`. This module owns the two
 // halves the UI needs — WHICH alternates exist (fetched once from the generated
 // variants.json) and WHICH ONE the player picked (persisted per card).
 //
@@ -141,7 +141,7 @@ export function setArtVariant(id: string, n: number): void {
 
 /** Public URL of one specific illustration. Variant 1 is the unsuffixed file. */
 export function artSrc(id: string, n: number): string {
-  const file = n <= 1 ? `${id}.jpg` : `${id}-${n}.jpg`;
+  const file = n <= 1 ? `${id}.webp` : `${id}-${n}.webp`;
   return `${import.meta.env.BASE_URL}card-art/${file}`;
 }
 
