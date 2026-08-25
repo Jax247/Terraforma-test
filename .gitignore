@@ -2,3 +2,6 @@ node_modules
 dist
 *.log
 .env
+
+# Local-only backup of the pre-WebP card art originals; not for the repo.
+card-art-jpg-backup.tar.gz
