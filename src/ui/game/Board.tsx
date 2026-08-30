@@ -21,8 +21,21 @@ export interface BoardProps {
   moveTargets: Coord[];
   shotTargets: Coord[];
   pickedTargets: Coord[];
+  /**
+   * Every tile that is legal to click right now, for whatever the board is currently asking —
+   * a move, a shot, a summon, a set, or one target of a spell / flip / leader ability. The
+   * outline it drives is the affordance ("you may click here"); the markers below stay the
+   * one that says what the click will DO.
+   */
+  availableTargets: Coord[];
   onTile: (c: Coord) => void;
   onHover: (s: DetailSubject | null) => void;
+  /**
+   * Which tile holds focus, or null when the board has lost it. The coord, not the piece on
+   * it — GameView resolves the occupant live, so the detail panel cannot go on describing a
+   * unit that has since moved or died.
+   */
+  onFocusTile: (c: Coord | null) => void;
   onInspect: (s: DetailSubject) => void;
   inspectUnit: (unitId: string) => DetailSubject;
 }
@@ -36,8 +49,10 @@ export function Board({
   moveTargets,
   shotTargets,
   pickedTargets,
+  availableTargets,
   onTile,
   onHover,
+  onFocusTile,
   onInspect,
   inspectUnit,
 }: BoardProps) {
@@ -91,6 +106,7 @@ export function Board({
             const isMove = moveTargets.some((m) => sameCoord(m, c));
             const isShot = shotTargets.some((m) => sameCoord(m, c));
             const isPicked = pickedTargets.some((p) => sameCoord(p, c));
+            const isAvailable = availableTargets.some((a) => sameCoord(a, c));
 
             const describe = [
               `${col},${row}`,
@@ -101,6 +117,9 @@ export function Board({
               occ?.kind === 'set' ? 'face-down card' : null,
               isMove ? (occ ? 'attackable' : 'reachable') : null,
               isShot ? 'in firing range' : null,
+              // The outline is the only cue for the flows that carry no marker of their own
+              // (summon, set, spell targets), so it has to reach a screen reader too.
+              isAvailable && !isMove && !isShot ? 'available target' : null,
             ]
               .filter(Boolean)
               .join(', ');
@@ -120,6 +139,7 @@ export function Board({
                   isShot && 'tile-shoot',
                   isSel && 'tile-selected',
                   isPicked && 'tile-picked',
+                  isAvailable && 'tile-available',
                 )}
                 style={
                   {
@@ -128,8 +148,14 @@ export function Board({
                     '--tile-ink': `var(${terrainVar(tile.terrain)}-ink)`,
                   } as CSSProperties
                 }
-                onClick={() => {
+                onClick={(e) => {
                   setCursor(at);
+                  // End the click path in a REAL focus, exactly as the arrow keys do, so the
+                  // grid cursor and the focus ring never disagree about where the player is.
+                  // Most browsers focus a tabindex="-1" div on click by themselves; not all do,
+                  // and the ring must not depend on which one this is. Before `onTile`, which
+                  // may dispatch and re-render.
+                  e.currentTarget.focus();
                   onTile(c);
                 }}
                 onKeyDown={(e) => {
@@ -139,6 +165,11 @@ export function Board({
                 }}
                 onMouseEnter={unit ? () => onHover(inspectUnit(unit.id)) : undefined}
                 onMouseLeave={unit ? () => onHover(null) : undefined}
+                // React's focus events bubble, so focusing the unit's own info button counts as
+                // focusing its tile — which is what a player would expect it to mean. Blur fires
+                // before the next focus, so moving between tiles settles on the new one.
+                onFocus={() => onFocusTile(c)}
+                onBlur={() => onFocusTile(null)}
                 aria-label={describe}
                 aria-selected={isSel}
               >

@@ -122,8 +122,18 @@
   box-shadow: inset 0 0 0 1px var(--tile-edge, #00000055);
   transition: box-shadow var(--motion-fast) var(--ease-out);
 
-  &:focus-visible {
-    @include focus-ring(var(--state-select));
+  // `:focus`, not `:focus-visible`. The board is a grid widget with a roving
+  // tabindex, so the focused tile IS the cursor — where the next arrow key or
+  // Enter will land. That has to be visible however the player got there, and
+  // `:focus-visible` deliberately hides it from anyone driving with a mouse,
+  // which is most of them. This is the one place in the app that wants the wider
+  // selector; every other control still uses the `focusable` mixin.
+  //
+  // Gold — the app-wide focus colour — rather than the selection blue this used
+  // to borrow. Once a mouse click shows the ring, a blue one reads as "this tile
+  // is selected", which is what `.tile-selected` already means three pixels away.
+  &:focus {
+    @include focus-ring;
     z-index: 3;
   }
 }
@@ -184,8 +194,27 @@
 }
 
 // ---- Targeting -------------------------------------------------------------
-// Four overlapping states that must be told apart by FORM, not only colour:
-// move = dot, shot = ring, selected = solid frame, picked = dashed frame.
+// Overlapping states that must be told apart by FORM, not only colour:
+// available = outline, move = dot, shot = edge ring, selected = solid frame,
+// picked = dashed frame.
+//
+// `.tile-available` answers "may I click here?" and every other marker answers
+// "what happens if I do", so the two ride separate channels — the outline owns
+// ::before and an inset ring, the markers own ::after and the tile's own edge.
+// Before this, only a selected unit's moves and shots were marked at all: summon,
+// set, moving a face-down card and every spell target asked in prose and drew
+// nothing.
+.tile-available::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 2px solid var(--state-target);
+  border-radius: 2px;
+  // Lifts the outline off busy terrain (Forest, Shadow) where a bare pink line on
+  // a mid-tone tile does not carry.
+  box-shadow: 0 0 0 1px #0b0c0f66, 0 0 6px #ff8de166;
+  pointer-events: none;
+}
 
 .tile-move::after {
   content: '';
@@ -226,8 +255,30 @@
 // Units
 // ---------------------------------------------------------------------------
 
+// Board pieces are CARDS, and the stance is which way up the card sits: upright
+// for attack, turned a quarter-turn for defense. That is the tabletop convention,
+// and it is legible from across the board in a way a corner badge never was —
+// the badge is kept as redundancy, not as the primary signal.
+//
+// Geometry note: the card is sized off the tile's HEIGHT at a 5:7 portrait ratio,
+// so its long edge (88% of the tile) still fits inside the tile once rotated. The
+// piece therefore never changes size when it braces — only its orientation.
+
+// Faction silhouettes, carried over from the flat tokens these cards replaced:
+// P1 is a shield (pointed foot), P2 a banner (swallowtail). Shape, not only hue,
+// is what tells the two sides apart, so the board survives without colour.
+$silhouette-p0: polygon(0 0, 100% 0, 100% 90%, 50% 100%, 0 90%);
+$silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
+
 .unit {
-  position: relative;
+  // Fills the tile so framer-motion measures a box identical on every tile; the
+  // card inside is what is actually card-sized. Absolute rather than a flex item
+  // so the measurement never depends on how the tile lays its children out.
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   // A moving token lives in its DESTINATION tile's DOM node while it tweens back
   // from the source position, so every tile later in DOM order used to paint over
   // it — the token vanished behind the board and reappeared on arrival. Lifting
@@ -235,16 +286,6 @@
   // travel visible at all. `.unit-moving` then lifts the one that is actually in
   // flight over the stationary ones it passes.
   z-index: 4;
-  width: 82%;
-  height: 82%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-2);
-  color: #fff;
-  overflow: hidden;
 }
 
 // In flight between tiles: ride above the stationary tokens it passes over.
@@ -252,45 +293,129 @@
   z-index: 6;
 }
 
-// Faction identity is carried by SHAPE as well as colour — P1 is a shield, P2 a
-// banner — so the two sides stay distinguishable without relying on hue.
 .unit-p0 {
-  background: linear-gradient(160deg, var(--faction-0), var(--faction-0-dim));
-  clip-path: polygon(0 0, 100% 0, 100% 74%, 50% 100%, 0 74%);
+  --faction: var(--faction-0);
+  --faction-dim: var(--faction-0-dim);
 }
 
 .unit-p1 {
-  background: linear-gradient(160deg, var(--faction-1), var(--faction-1-dim));
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
+  --faction: var(--faction-1);
+  --faction-dim: var(--faction-1-dim);
 }
 
-.unit-atk {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: clamp(0.75rem, calc(var(--tile) * 0.26), 1.25rem);
-  line-height: 1;
-  text-shadow: 0 1px 2px #0009;
+// ---- The card --------------------------------------------------------------
+
+.unit-card {
+  position: relative;
+  height: 90%;
+  aspect-ratio: 5 / 7;
+  border-radius: 3px;
+  // The frame itself. The art well below is inset over it, so this gradient is
+  // what reads as the card's faction-coloured border.
+  background: linear-gradient(160deg, var(--faction), var(--faction-dim));
+  // clip-path erases box-shadow, so the card's depth is a drop-shadow filter.
+  filter: drop-shadow(0 2px 4px #0008);
+  transition: transform var(--motion-base) var(--ease-out);
 }
 
-.unit-def {
-  font-size: 0.7em;
-  opacity: 0.85;
+.unit-p0 .unit-card,
+.unit-p0 .unit-well {
+  clip-path: $silhouette-p0;
+}
+
+.unit-p1 .unit-card,
+.unit-p1 .unit-well {
+  clip-path: $silhouette-p1;
+}
+
+// Defense stance. The quarter-turn is the whole point; the green rim is
+// redundancy for a still screenshot, where orientation reads less immediately.
+//
+// Clockwise, so the name and stat line run top-to-bottom and are read with a
+// head-tilt to the right — the book-spine direction. Counter-clockwise turns them
+// upside down relative to that and is measurably harder to scan.
+.unit-card-defending {
+  transform: rotate(90deg);
+  filter: drop-shadow(0 0 3px var(--state-ok)) drop-shadow(0 2px 4px #0008);
+}
+
+// Inset by the frame's width and clipped to the SAME silhouette. Because the
+// polygon is in percentages of this smaller box, the inner edge comes out roughly
+// parallel to the outer one — which is what makes the frame read as a frame.
+.unit-well {
+  position: absolute;
+  inset: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  // Shows through wherever art is missing: the card's type accent, washed dark.
+  background: linear-gradient(150deg, var(--card-accent, #3a4150), #14161c);
+}
+
+.unit-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+// Art is generated per card and varies wildly in value; without this the stat
+// line lands on whatever happened to be at the foot of the illustration.
+.unit-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, #0b0c0f00 30%, #0b0c0fd9 78%);
+}
+
+.unit-text {
+  position: absolute;
+  // Held clear of the silhouette's foot so the stats never sit on the point.
+  inset: auto 3% 12% 3%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
 }
 
 .unit-name {
-  max-width: 92%;
+  max-width: 100%;
   font-size: var(--text-3xs);
   font-weight: 500;
-  opacity: 0.9;
+  line-height: 1.1;
+  opacity: 0.92;
+  text-shadow: 0 1px 2px #000c;
   @include truncate;
 
+  // No room for it on a phone-sized card — the stat line is what has to survive.
   @include below(md) {
     display: none;
   }
 }
 
-.unit-leader {
-  box-shadow: 0 0 0 2px var(--accent), var(--shadow-2);
+.unit-atk {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  // Sized off the CARD's width, not the tile's: the card is ~63% of a tile wide,
+  // and the old tile-relative size overflowed a portrait piece.
+  font-size: clamp(0.6rem, calc(var(--tile) * 0.19), 1.05rem);
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000c;
+}
+
+.unit-def {
+  font-size: 0.72em;
+  opacity: 0.85;
+}
+
+// The leader's frame runs gold into its own faction colour — with clip-path in
+// play there is no ring to draw over the card, so the frame has to carry the rank.
+// Only the light stop is replaced: an all-gold frame made the two leaders near
+// identical, and which side a leader belongs to is the more important read.
+.unit-leader .unit-card {
+  --faction: var(--accent);
+  filter: drop-shadow(0 0 5px var(--accent-faint)) drop-shadow(0 2px 4px #0008);
 }
 
 .unit-crown {
@@ -299,15 +424,17 @@
 }
 
 // Summoning sickness: desaturated and dimmed — it reads as "not yet awake".
-.unit-sick {
-  filter: saturate(0.4) brightness(0.75);
+// Last of the filter rules on purpose, so a sick piece looks sick whatever else
+// it is. Only `filter` is touched, so a sick unit set in defense still shows the
+// turn.
+.unit-sick .unit-card {
+  filter: saturate(0.35) brightness(0.68) drop-shadow(0 2px 4px #0008);
 }
 
-.unit-defending {
-  box-shadow: 0 0 0 2px var(--state-ok), 0 0 8px var(--state-ok);
-}
+// ---- Board chrome ----------------------------------------------------------
+// Not part of the card, so it does not rotate with it and does not cover the art:
+// the card sits in the middle of the tile and this rides the corners it leaves free.
 
-// Corner badges. Statuses stack down the left edge; the info button sits right.
 .unit-badges {
   position: absolute;
   top: 1px;
@@ -352,11 +479,13 @@
 
 .unit-info {
   position: absolute;
-  top: 0;
-  right: 0;
-  padding: 1px 2px;
-  background: transparent;
+  top: 1px;
+  right: 1px;
+  display: flex;
+  padding: 1px;
   border: 0;
+  border-radius: var(--radius-full);
+  background: #0b0c0fcc;
   color: #fff;
   opacity: 0.55;
   cursor: pointer;
@@ -364,7 +493,6 @@
 
   &:hover {
     opacity: 1;
-    background: #0006;
   }
 
   &:focus-visible {
@@ -376,18 +504,23 @@
   }
 }
 
-// Face-down card.
+// Face-down card: the same card shape wearing the universal back.
+//
+// ⚠ NEVER rotated. A set unit holds a real stance (SetCard.stance), but that is
+// hidden information by design — the back is identical whichever way the card was
+// set, which is what keeps attacking a face-down card a genuine gamble. Turning it
+// here would leak the one bit the rule exists to hide.
 .facedown {
-  width: 82%;
-  height: 82%;
-  border-radius: var(--radius-sm);
+  height: 90%;
+  aspect-ratio: 5 / 7;
+  border-radius: 3px;
   background: repeating-linear-gradient(45deg, #3a3f4d, #3a3f4d 5px, #2c303b 5px, #2c303b 10px);
-  border: 1px solid var(--border-strong);
+  border: 2px solid var(--border-strong);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--ink-muted);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-2);
 }
 
 // ---------------------------------------------------------------------------
