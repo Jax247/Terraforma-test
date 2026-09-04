@@ -128,11 +128,15 @@ export function leaderOf(s: GameState, p: 0 | 1): Unit {
  * (e.g. the fog sanitizer) replaces the record, never mutates it.
  */
 export function cloneState(s: GameState): GameState {
-  const { cardDefs, tokenDefs, leaders, ...dynamic } = s;
+  // `battles` is dropped rather than copied: it belongs to the action that produced `s`, and the
+  // clone is about to resolve a NEW one. Skipping it keeps the report out of the deep clone that
+  // every candidate action in a search pays for.
+  const { cardDefs, tokenDefs, leaders, battles: _battles, ...dynamic } = s;
   const out = structuredClone(dynamic) as GameState;
   out.cardDefs = cardDefs;
   out.tokenDefs = tokenDefs;
   out.leaders = leaders;
+  out.battles = [];
   return out;
 }
 

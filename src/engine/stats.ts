@@ -1,7 +1,7 @@
 import { BOARD_SIZE, chebyshev, mooreAdjacent, orthAdjacent, tileAt, unitAt } from './board';
 import { RULES } from './rules';
 import { hasKeyword, isSuppressed } from './status';
-import type { CombatCtx, Condition, Coord, CountSpec, GameState, PlayerId, TargetSpec, Terrain, TypeName, Unit } from './types';
+import type { CombatCtx, Condition, Coord, CountSpec, GameState, PlayerId, StatBreakdown, StatTerm, TargetSpec, Terrain, TimedStatus, TypeName, Unit } from './types';
 
 /** Rules Spec §11 — one favored (+10), one weak (−10) per type, uniform. */
 const CHART: Record<TypeName, { favored: Terrain; weak: Terrain }> = {
@@ -214,11 +214,32 @@ export function conditionHolds(s: GameState, cond: Condition | undefined, ctx: C
   }
 }
 
-export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number {
+/**
+ * A single line of the sum — one buff, one debuff, one terrain reading.
+ *
+ * Collected only when a caller asks for them (see `atkBreakdown`). The battle popup is the one
+ * thing that does; everything else — the AI's evaluation, `legalActions`, every combat
+ * resolution — takes the scalar path below and allocates nothing.
+ */
+/**
+ * ⚠ THE implementation of effective ATK. `effectiveAtk` and `atkBreakdown` are both thin wrappers
+ * over it, so the number the engine fights with and the number the popup itemises can never be two
+ * different calculations of the same thing.
+ *
+ * `terms` is an optional sink rather than a return value because this is one of the hottest
+ * functions in the project — the search bots call it thousands of times per turn. `terms?.push(…)`
+ * short-circuits the whole call, argument construction included, so the scalar path costs exactly
+ * what it did before this was splittable at all.
+ */
+function computeAtk(s: GameState, unit: Unit, ctx: CombatCtx | undefined, terms?: StatTerm[]): number {
   let atk = unit.baseAtk;
+  terms?.push({ label: 'Base ATK', amount: unit.baseAtk, kind: 'base' });
 
   // Terrain: the battle tile in melee combat, this unit's own tile otherwise (see `terrainTile`).
-  atk += terrainMod(unit.type, tileAt(s.board, terrainTile(unit, ctx)).terrain);
+  const terrain = tileAt(s.board, terrainTile(unit, ctx)).terrain;
+  const terrainAtk = terrainMod(unit.type, terrain);
+  atk += terrainAtk;
+  if (terrainAtk !== 0) terms?.push({ label: `${terrain} (${unit.type})`, amount: terrainAtk, kind: 'terrain' });
 
   // Frenzy: +5 per orthogonally adjacent allied unit, max +20. Continuously re-evaluated.
   if (hasKeyword(unit, 'Frenzy')) {
@@ -226,7 +247,9 @@ export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number 
       const u = unitAt(s, c);
       return u !== undefined && u.owner === unit.owner;
     }).length;
-    atk += Math.min(20, 5 * allies);
+    const frenzy = Math.min(20, 5 * allies);
+    atk += frenzy;
+    if (frenzy !== 0) terms?.push({ label: `Frenzy (${allies} ${allies === 1 ? 'ally' : 'allies'})`, amount: frenzy, kind: 'keyword' });
   }
 
   // Own passive auras (e.g. Grovecaller +5/Forest-around, Sand Revenant +5/Undead-in-grave).
@@ -237,9 +260,14 @@ export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number 
   for (const rule of ownRules) {
     if (rule.trigger !== 'Passive' || rule.target.t !== 'Self') continue;
     if (!conditionHolds(s, rule.condition, { subject: unit, combat: ctx, owner: unit.owner, insideAtk: true })) continue;
-    if (rule.effect.e === 'AuraAtk') atk += rule.effect.amount;
+    if (rule.effect.e === 'AuraAtk') {
+      atk += rule.effect.amount;
+      terms?.push({ label: def && 'name' in def ? def.name : 'Own passive', amount: rule.effect.amount, kind: 'aura' });
+    }
     if (rule.effect.e === 'AuraAtkPerCount') {
-      atk += rule.effect.amount * evalCount(s, unit, rule.effect.count);
+      const amount = rule.effect.amount * evalCount(s, unit, rule.effect.count);
+      atk += amount;
+      if (amount !== 0) terms?.push({ label: def && 'name' in def ? def.name : 'Own passive', amount, kind: 'aura' });
     }
   }
 
@@ -265,20 +293,37 @@ export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number 
       if (!conditionHolds(s, rule.condition, { subject: unit, combat: ctx, owner: p, insideAtk: true })) continue;
       // `evalCount` scopes `TypeInOwnGraveyard` to the RECIPIENT's owner, which `leaderAuraApplies`
       // has already pinned to the leader's own side — so a leader never reads the enemy's pile.
-      atk += eff.e === 'AuraAtk' ? eff.amount : eff.amount * evalCount(s, unit, eff.count);
+      const amount = eff.e === 'AuraAtk' ? eff.amount : eff.amount * evalCount(s, unit, eff.count);
+      atk += amount;
+      if (amount !== 0) terms?.push({ label: leaderDef.name, amount, kind: 'aura' });
     }
   }
 
   // Timed statuses (buffs/debuffs with a duration).
   for (const st of unit.statuses) {
-    if (st.kind === 'AtkMod') atk += st.amount;
+    if (st.kind === 'AtkMod') {
+      atk += st.amount;
+      terms?.push({ label: statusLabel(st), amount: st.amount, kind: 'status' });
+    }
   }
 
   // Permanent counters. Last because they are the one term that never expires or re-evaluates —
   // they are simply part of what the unit has grown into.
-  atk += unit.atkCounters * COUNTER_STEP;
+  const counters = unit.atkCounters * COUNTER_STEP;
+  atk += counters;
+  if (counters !== 0) terms?.push({ label: `${unit.atkCounters} ATK counter${unit.atkCounters === 1 ? '' : 's'}`, amount: counters, kind: 'counter' });
 
   return atk;
+}
+
+export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number {
+  return computeAtk(s, unit, ctx);
+}
+
+/** Effective ATK, itemised. Same computation as `effectiveAtk` — see `computeAtk`. */
+export function atkBreakdown(s: GameState, unit: Unit, ctx?: CombatCtx): StatBreakdown {
+  const terms: StatTerm[] = [];
+  return { total: computeAtk(s, unit, ctx, terms), terms };
 }
 
 /**
@@ -291,8 +336,25 @@ export function effectiveAtk(s: GameState, unit: Unit, ctx?: CombatCtx): number 
  * leader cannot buff DEF, a breaker cannot strip it). Frenzy is deliberately NOT mirrored — it is
  * an ATK keyword about massing bodies, and a defensive twin is a separate design question.
  */
-export function effectiveDef(s: GameState, unit: Unit, ctx?: CombatCtx): number {
-  let def = unit.baseDef + terrainMod(unit.type, tileAt(s.board, terrainTile(unit, ctx)).terrain);
+/**
+ * A timed stat status carries no source name — only a kind, an amount and a duration — so this is
+ * as specific as an itemised line can honestly be. It says how long it lasts, which is the part a
+ * player is actually deciding on.
+ */
+function statusLabel(st: TimedStatus): string {
+  const word = st.amount >= 0 ? 'Buff' : 'Debuff';
+  if (st.duration.kind === 'permanent') return `${word} (permanent)`;
+  if (st.duration.kind === 'endOfTurn') return `${word} (ends this turn)`;
+  return `${word} (${st.duration.turnsLeft} turn${st.duration.turnsLeft === 1 ? '' : 's'})`;
+}
+
+/** ⚠ THE implementation of effective DEF; see `computeAtk` for why `terms` is a sink. */
+function computeDef(s: GameState, unit: Unit, ctx: CombatCtx | undefined, terms?: StatTerm[]): number {
+  const terrain = tileAt(s.board, terrainTile(unit, ctx)).terrain;
+  const terrainDef = terrainMod(unit.type, terrain);
+  let def = unit.baseDef + terrainDef;
+  terms?.push({ label: 'Base DEF', amount: unit.baseDef, kind: 'base' });
+  if (terrainDef !== 0) terms?.push({ label: `${terrain} (${unit.type})`, amount: terrainDef, kind: 'terrain' });
 
   // Own passive auras (self-targeted, like the ATK side).
   //
@@ -311,6 +373,7 @@ export function effectiveDef(s: GameState, unit: Unit, ctx?: CombatCtx): number 
     if (rule.effect.e !== 'AuraDef') continue;
     if (!conditionHolds(s, rule.condition, { subject: unit, combat: ctx, owner: unit.owner })) continue;
     def += rule.effect.amount;
+    terms?.push({ label: cardDef && 'name' in cardDef ? cardDef.name : 'Own passive', amount: rule.effect.amount, kind: 'aura' });
   }
 
   // Leader passive auras — standing predicates over current state (Bastion's Mountain aegis).
@@ -325,17 +388,33 @@ export function effectiveDef(s: GameState, unit: Unit, ctx?: CombatCtx): number 
       if (!conditionHolds(s, rule.condition, { subject: unit, combat: ctx, owner: p })) continue;
       if (!leaderAuraApplies(s, p, rule.target, unit)) continue;
       def += rule.effect.amount;
+      terms?.push({ label: s.leaders[p].name, amount: rule.effect.amount, kind: 'aura' });
     }
   }
 
   // Timed statuses (Aegis +DEF, Sunder −DEF).
   for (const st of unit.statuses) {
-    if (st.kind === 'DefMod') def += st.amount;
+    if (st.kind === 'DefMod') {
+      def += st.amount;
+      terms?.push({ label: statusLabel(st), amount: st.amount, kind: 'status' });
+    }
   }
 
-  def += unit.defCounters * COUNTER_STEP;
+  const counters = unit.defCounters * COUNTER_STEP;
+  def += counters;
+  if (counters !== 0) terms?.push({ label: `${unit.defCounters} DEF counter${unit.defCounters === 1 ? '' : 's'}`, amount: counters, kind: 'counter' });
 
   return def;
+}
+
+export function effectiveDef(s: GameState, unit: Unit, ctx?: CombatCtx): number {
+  return computeDef(s, unit, ctx);
+}
+
+/** Effective DEF, itemised. Same computation as `effectiveDef` — see `computeDef`. */
+export function defBreakdown(s: GameState, unit: Unit, ctx?: CombatCtx): StatBreakdown {
+  const terms: StatTerm[] = [];
+  return { total: computeDef(s, unit, ctx, terms), terms };
 }
 
 function leaderAuraApplies(s: GameState, leaderOwner: 0 | 1, target: TargetSpec, unit: Unit): boolean {

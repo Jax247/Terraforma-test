@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import type { GameState, PlayerId } from '../../engine';
 import { Button } from '../components/Button';
+import { useGameMotionDuration } from '../motion';
 
 export function WinnerOverlay({
   game,
@@ -16,6 +17,11 @@ export function WinnerOverlay({
   onNewGame: () => void;
   onViewLog: () => void;
 }) {
+  // Zeroed while the game outruns the board, delay included — see useGameMotionDuration.
+  const fade = useGameMotionDuration(0.35);
+  const rise = useGameMotionDuration(0.4);
+  const delay = useGameMotionDuration(0.1);
+
   return (
     <motion.div
       className="winner"
@@ -23,13 +29,13 @@ export function WinnerOverlay({
       aria-label="Game over"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.35 }}
+      transition={{ duration: fade }}
     >
       <motion.div
         className="winner-title"
         initial={{ opacity: 0, y: 12, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
+        transition={{ duration: rise, delay }}
       >
         Player {winner + 1} wins
       </motion.div>

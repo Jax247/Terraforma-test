@@ -1,17 +1,49 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { cardSpCost, defaultDef, isMineOnly, unitSpCost } from '../../engine';
+import { cardSpCost, defaultDef, unitSpCost } from '../../engine';
 import type { CardDef, GameState, PlayerId } from '../../engine';
 import { Button } from '../components/Button';
 import { CardFrame } from '../components/CardFrame';
 import { StatChip } from '../components/Chip';
 import { Panel } from '../components/Panel';
 import type { DetailSubject } from '../CardDetail';
+import { useGameMotionDuration } from '../motion';
+import { handPlays } from './handPlays';
+import type { Playable } from './handPlays';
+
+/**
+ * A stable React key per card in hand.
+ *
+ * `PlayerState.hand` is a bare list of card DEF ids with duplicates allowed (see
+ * engine/types.ts) — there is no per-copy instance id to key off. The obvious
+ * `${cardId}${index}` is worse than no key at all: playing anything but the last
+ * card shifts every card after it down one index, so every one of their keys
+ * changes and React unmounts and remounts the entire tail. AnimatePresence then
+ * sees the whole hand exit and a near-identical hand enter, on every single play.
+ * Under `mode="popLayout"` the leavers are taken out of flow and stacked, so at AI
+ * speed they pile up faster than they can finish leaving — a five-card hand was
+ * measured holding 11 nodes on Watchable, 27 on Fast and 95 on Instant, smeared
+ * over each other in the middle of the row.
+ *
+ * Numbering each duplicate instead means a card's key depends only on the copies of
+ * ITSELF that precede it, so playing one card leaves every other card's key alone.
+ * Copies of the same def are interchangeable, so which one is treated as leaving
+ * does not matter — they render identically.
+ */
+function handKeys(hand: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return hand.map((cardId) => {
+    const n = seen.get(cardId) ?? 0;
+    seen.set(cardId, n + 1);
+    return `${cardId}#${n}`;
+  });
+}
 
 export function Hand({
   view,
   viewer,
   myTurn,
   pendingBurn,
+  playable,
   onInspect,
   onHover,
   onBurn,
@@ -24,6 +56,8 @@ export function Hand({
   myTurn: boolean;
   /** True while the hand is over cap and one card must be burned. */
   pendingBurn: boolean;
+  /** Card ids the engine will currently accept each play for — see GameView. */
+  playable: Playable;
   onInspect: (s: DetailSubject) => void;
   onHover: (s: DetailSubject | null) => void;
   onBurn: (index: number) => void;
@@ -32,6 +66,10 @@ export function Hand({
   onSet: (cardId: string, stance?: 'attack' | 'defense') => void;
 }) {
   const ps = view.players[viewer];
+  const keys = handKeys(ps.hand);
+  // 0 when motion is off, which is also what lets a leaver be REMOVED rather than
+  // linger absolutely-positioned over the row; see useGameMotionDuration.
+  const duration = useGameMotionDuration(0.18);
 
   return (
     <Panel
@@ -56,14 +94,18 @@ export function Hand({
             // The over-cap draw is the last card in hand and cannot itself be burned.
             const isIncoming = pendingBurn && i === ps.hand.length - 1;
             const sp = def.kind === 'unit' ? unitSpCost(def) : cardSpCost(def);
+            // Which plays this card offers, whether each is available, and the sentence
+            // explaining a refusal — all shared with the board's action menu, so a card greyed
+            // out in one is greyed out in the other for the identical stated reason.
+            const plays = handPlays(cardId, def, ps.sp, playable);
             return (
               <motion.div
-                key={`${cardId}${i}`}
+                key={keys[i]}
                 layout
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -24, scale: 0.9 }}
-                transition={{ duration: 0.18 }}
+                transition={{ duration }}
               >
                 <CardFrame
                   id={cardId}
@@ -92,29 +134,23 @@ export function Hand({
                           burn
                         </Button>
                       )}
-                      {!pendingBurn && myTurn && def.kind === 'unit' && (
-                        <Button size="sm" onClick={() => onSummon(cardId)}>
-                          summon
-                        </Button>
-                      )}
-                      {!pendingBurn && myTurn && def.kind === 'spell' && !isMineOnly(def) && (
-                        <Button size="sm" onClick={() => onCast(cardId, def)}>
-                          cast
-                        </Button>
-                      )}
-                      {/* Any card — unit, spell, or trap — can be set face-down (universal bluff). */}
-                      {!pendingBurn && myTurn && (
-                        <Button size="sm" onClick={() => onSet(cardId)}>
-                          set
-                        </Button>
-                      )}
-                      {/* A face-down UNIT picks its stance on the way down. Since 2026-08-16 being
-                          hidden is not a posture, so this is the only way a set unit fights on DEF. */}
-                      {!pendingBurn && myTurn && def.kind === 'unit' && (
-                        <Button size="sm" onClick={() => onSet(cardId, 'defense')} title="Set face-down in defense position">
-                          set def
-                        </Button>
-                      )}
+                      {!pendingBurn &&
+                        myTurn &&
+                        plays.map((play) => (
+                          <Button
+                            key={play.kind}
+                            size="sm"
+                            disabled={!play.enabled}
+                            title={play.title}
+                            onClick={() => {
+                              if (play.kind === 'summon') onSummon(cardId);
+                              else if (play.kind === 'cast') onCast(cardId, def);
+                              else onSet(cardId, play.kind === 'setDef' ? 'defense' : undefined);
+                            }}
+                          >
+                            {play.short}
+                          </Button>
+                        ))}
                     </>
                   }
                 />

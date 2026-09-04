@@ -1,23 +1,31 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  activationReach,
   applyAction,
   cardCandidates,
   cardRequest,
+  combinedRequest,
+  enumerateBoundActions,
+  enumerateTargetSets,
   legalActions,
   sameCoord,
   targetsNeeded,
   tileAt,
 } from '../engine';
-import type { Action, CardRequest, Coord, GameState, NameResolver, PlayerId, SpellCardDef, SpellEffectLine } from '../engine';
+import type { Action, BattleReport, CardRequest, Coord, GameState, NameResolver, PlayerId, SpellCardDef, SpellEffectLine } from '../engine';
 import { sanitize } from '../ai';
 import { Button } from './components/Button';
 import { Panel } from './components/Panel';
 import { CardDetailBody } from './CardDetail';
 import type { DetailSubject } from './CardDetail';
 import { describeExperiments, liveExperiments } from './experiments';
+import { keyLabel } from './keybinds';
+import type { Keybinds } from './keybinds';
 import { Modal } from './Modal';
 import { ZoneModal } from './ZoneModal';
+import { BattlePopup } from './game/BattlePopup';
 import { Board } from './game/Board';
+import { buildTileMenus } from './game/tileMenus';
 import { Hand } from './game/Hand';
 import { FullLog, groupLogByTurn, LogPanel } from './game/LogPanel';
 import { LeaderPanel, StancePanel } from './game/SidePanels';
@@ -33,15 +41,85 @@ import { ZonesPanel } from './game/ZonesPanel';
  */
 type CardPick = { req: CardRequest; chosenCard?: string };
 
+/**
+ * The tile half of an in-flight activation.
+ *
+ * `effects` is carried rather than a snapshot of the enumerated tiles: the board re-derives
+ * the legal targets from the engine on every render, so what it outlines is what
+ * `applyAction` will accept. Stashing coordinates here would be a second copy of engine
+ * state to keep honest, for no gain — nothing applies while a pick is in flight, so the
+ * enumeration is stable anyway.
+ */
+type Aimed = { needed: number; picked: Coord[]; effects: SpellEffectLine[] };
+
 type Targeting =
   | { kind: 'summon'; card: string }
   // `stance` is carried through targeting because a face-down UNIT now picks its posture on the
   // way down — since 2026-08-16 that is the only way a hidden unit can fight on DEF.
   | { kind: 'set'; card: string; stance?: 'attack' | 'defense' }
-  | ({ kind: 'cast'; card: string; needed: number; picked: Coord[] } & CardPick)
-  | ({ kind: 'flip'; set: string; needed: number; picked: Coord[] } & CardPick)
-  | ({ kind: 'ability'; needed: number; picked: Coord[] } & CardPick)
+  | ({ kind: 'cast'; card: string } & Aimed & CardPick)
+  | ({ kind: 'flip'; set: string } & Aimed & CardPick)
+  | ({ kind: 'ability' } & Aimed & CardPick)
   | { kind: 'moveset'; set: string };
+
+/** Dedupe coords — several enumerations reach the same tile by more than one route. */
+function uniqueCoords(cs: Coord[]): Coord[] {
+  const seen = new Set<string>();
+  return cs.filter((c) => {
+    const key = `${c.col},${c.row}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * The tile sets the PICKER will accept, which is not quite the set `enumerateTargetSets`
+ * returns.
+ *
+ * A Line3 is enumerated in one canonical direction per line, because binding an action only
+ * needs one representative of each. A player clicking that same line the other way round is
+ * choosing the same three tiles and the engine takes it — `isStraightContiguousLine` reads
+ * the direction off the first two — so without the reverse the outline would go dark after
+ * the first click on any line drawn right-to-left. A fusePair is already emitted both ways
+ * round, and every other request is a single tile, so this is a no-op for them.
+ */
+function pickableSets(sets: Coord[][]): Coord[][] {
+  return sets.flatMap((set) => (set.length > 1 ? [set, [...set].reverse()] : [set]));
+}
+
+/**
+ * The card an in-flight activation is placing or resolving.
+ *
+ * Exists because the detail panel used to go blank at exactly the moment "what am I putting
+ * down?" is the live question: starting a summon clears the hover and selects nothing, so the
+ * player picks a tile for a card they can no longer see.
+ *
+ * ⚠ `moveset` is deliberately absent. Walking a face-down card must not name it — nothing else
+ * in the UI does, and hotseat shares a screen. A `flip` DOES name its spell, because the leader
+ * panel the player just clicked to start it already listed the card by name.
+ */
+function targetingSubject(view: GameState, viewer: PlayerId, t: Targeting | null): DetailSubject | null {
+  if (!t) return null;
+  switch (t.kind) {
+    case 'summon':
+    case 'set':
+    case 'cast': {
+      const def = view.cardDefs[t.card];
+      return def ? { kind: 'card', def } : null;
+    }
+    case 'flip': {
+      const sc = view.setCards[t.set];
+      const def = sc ? view.cardDefs[sc.cardId] : undefined;
+      return def ? { kind: 'card', def } : null;
+    }
+    case 'ability':
+      // Not a card at all — the leader whose ability is mid-resolution.
+      return { kind: 'leader', def: view.leaders[viewer] };
+    case 'moveset':
+      return null;
+  }
+}
 
 export function GameView({
   game,
@@ -52,6 +130,8 @@ export function GameView({
   seat,
   onAction,
   boardName,
+  keybinds,
+  battlePopup,
 }: {
   game: GameState;
   names: NameResolver;
@@ -64,6 +144,10 @@ export function GameView({
   onAction?: (a: Action, next: GameState) => void;
   /** Which map this game is on. Worth showing when the picker rolled it for you. */
   boardName?: string;
+  /** Player-configurable board keys; see src/ui/keybinds.ts. */
+  keybinds: Keybinds;
+  /** Settings > Battle popup. Off resolves combat straight to the log. */
+  battlePopup: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null); // unit id
   const [targeting, setTargeting] = useState<Targeting | null>(null);
@@ -72,8 +156,39 @@ export function GameView({
   const [showFullLog, setShowFullLog] = useState(false);
   const logTurns = useMemo(() => groupLogByTurn(game.log), [game.log]);
   const [hovered, setHovered] = useState<DetailSubject | null>(null); // card under the cursor
+  // The tile holding keyboard/mouse focus, as a COORD rather than a resolved subject: the
+  // occupant changes under it (a unit moves off, dies, is fused away) and a captured subject
+  // would go on describing a piece that is no longer there.
+  const [focusedTile, setFocusedTile] = useState<Coord | null>(null);
   // Below xl the command rail is a drawer under the board, so the board owns the screen.
   const [drawerOpen, setDrawerOpen] = useState(true);
+
+  /**
+   * The fight currently being shown, CAPTURED rather than read live off `game`.
+   *
+   * `game.battles` belongs to the action that produced the current state, so deriving the popup
+   * from it means the next action takes it away — which at AI speed is a third of a second. Held
+   * here instead, so the panel owns its own few seconds however fast the game moves on.
+   *
+   * The effect keys on the array identity: `applyAction` builds a fresh one per action, so this
+   * fires once per fight and works the same for a hotseat move, an AI move, and an opponent's
+   * move arriving over the wire — all three reach this component as a new state.
+   */
+  const [shownBattles, setShownBattles] = useState<BattleReport[] | null>(null);
+  const seenBattles = useRef<BattleReport[] | null>(null);
+  useEffect(() => {
+    // Marked seen even while the setting is off, so switching it back on cannot replay a fight
+    // that has already been and gone.
+    const fresh = game.battles !== seenBattles.current;
+    seenBattles.current = game.battles;
+    // Turning it off takes down whatever is on screen now, rather than leaving one last panel
+    // to sit out its timer.
+    if (!battlePopup) {
+      setShownBattles(null);
+      return;
+    }
+    if (fresh && game.battles.length > 0) setShownBattles(game.battles);
+  }, [game.battles, battlePopup]);
 
   const legal = useMemo(() => legalActions(game), [game]);
   const active = game.active;
@@ -87,6 +202,10 @@ export function GameView({
   const myTurn = seat === undefined || active === seat;
   const ps = view.players[viewer];
   const leader = view.leaders[viewer];
+  // The leader UNIT on the board, not `leaders[viewer]` — that is the card
+  // definition and has no position. Guarded because a finished game may have
+  // lost it, and `leaderOf` throws rather than returning undefined.
+  const leaderUnit = Object.values(view.units).find((u) => u.isLeader && u.owner === viewer);
   // Online seat 1 sits at the far end (row 7), so rotate the board 180° — both
   // axes flip — to render it from their end, own side at the bottom. Hotseat and
   // seat 0 keep the canonical orientation (row 7 top, col 1 left).
@@ -126,7 +245,7 @@ export function GameView({
       if (base.kind === 'flip') return dispatch({ t: 'FlipCard', set: base.set });
       return dispatch({ t: 'ActivateAbility' });
     }
-    setTargeting({ ...base, needed, picked: [], req });
+    setTargeting({ ...base, needed, picked: [], req, effects });
   }
 
   /** The card-pick step, if the in-flight activation is waiting on one. */
@@ -206,10 +325,112 @@ export function GameView({
         .map((a) => a.target)
     : [];
 
+  /**
+   * Every tile that is legal to click RIGHT NOW, whatever the board is currently asking for.
+   *
+   * A selected unit's moves and shots always had their own markers, but every OTHER flow that
+   * wants a tile — summoning, setting face-down, walking a face-down card, and each target of a
+   * spell, flip or leader ability — asked in prose and marked nothing, so a wrong guess was only
+   * discovered as a thrown engine error. All of it is enumerated by the engine rather than
+   * re-derived here, so the board cannot outline a tile `applyAction` would refuse.
+   */
+  const availableTargets: Coord[] = (() => {
+    if (!targeting) return uniqueCoords([...moveTargets, ...shotTargets]);
+    switch (targeting.kind) {
+      case 'summon':
+        return uniqueCoords(
+          legal
+            .filter((a): a is Extract<Action, { t: 'Summon' }> => a.t === 'Summon' && a.card === targeting.card)
+            .map((a) => a.tile),
+        );
+      case 'set':
+        // Not filtered by stance: both stances are offered on the same ring of tiles, and a set
+        // spell or trap carries no stance at all.
+        return uniqueCoords(
+          legal
+            .filter((a): a is Extract<Action, { t: 'SetCard' }> => a.t === 'SetCard' && a.card === targeting.card)
+            .map((a) => a.tile),
+        );
+      case 'moveset':
+        return uniqueCoords(
+          legal
+            .filter((a): a is Extract<Action, { t: 'MoveSet' }> => a.t === 'MoveSet' && a.set === targeting.set)
+            .map((a) => a.to),
+        );
+      default: {
+        // Multi-tile requests are picked one tile at a time, so what is legal next depends on what
+        // is already down: keep the sets still matching `picked`, and offer their next tile.
+        const { picked } = targeting;
+        const sets = pickableSets(
+          enumerateTargetSets(game, viewer, combinedRequest(targeting.effects), activationReach(game, viewer, targeting)),
+        );
+        return uniqueCoords(
+          sets
+            .filter((set) => picked.every((p, i) => set[i] !== undefined && sameCoord(p, set[i]!)))
+            .map((set) => set[picked.length])
+            .filter((c): c is Coord => c !== undefined),
+        );
+      }
+    }
+  })();
+
   const selectedUnit = selected ? game.units[selected] : undefined;
+
+  /**
+   * What the detail panel is describing.
+   *
+   * Four sources, most transient first: the pointer, the focused tile, the card an activation
+   * is placing, then the standing selection. Hover wins because it is the deliberate "what is
+   * this?" gesture and ends the moment the pointer leaves; the rest persist, so they are the
+   * floor the panel falls back to rather than going blank. Focusing an empty tile contributes
+   * nothing and drops through, which is what makes arrowing around the board while holding a
+   * unit selected still describe the unit.
+   *
+   * An in-flight activation outranks the SELECTION even though it is the newer source: while a
+   * pick is in flight `clickTile` handles it first and the selection is inert, so describing the
+   * selected unit there would be describing the one thing a click cannot currently act on.
+   *
+   * A face-down card is deliberately not a source, exactly as it is not one for hover: its
+   * identity is hidden information, and both players share a screen in hotseat.
+   */
+  const focusedOccupant = focusedTile ? tileAt(view.board, focusedTile).occupant : undefined;
+  const focusedUnit = focusedOccupant?.kind === 'unit' ? view.units[focusedOccupant.id] : undefined;
+  const detail: DetailSubject | null =
+    hovered ??
+    (focusedUnit ? inspectUnit(focusedUnit.id) : null) ??
+    targetingSubject(view, viewer, targeting) ??
+    (selectedUnit ? inspectUnit(selectedUnit.id) : null);
+
   const stanceActions: Extract<Action, { t: 'SetStance' }>[] = selected
     ? legal.filter((a): a is Extract<Action, { t: 'SetStance' }> => a.t === 'SetStance' && a.unit === selected)
     : [];
+
+  /**
+   * Which hand cards each play is actually available on right now.
+   *
+   * Off the engine's own enumeration rather than re-checking SP and the caps in the hand, for
+   * the same reason the board's target outline is: a second derivation of a rule drifts from
+   * the first. Every play used to be offered on every card unconditionally, so an unaffordable
+   * one took the player into tile-targeting and only then failed on the click.
+   *
+   * ⚠ The FULLY BOUND enumeration, not `legalActions`. Two reasons, both about casting:
+   * `legalActions` emits `CastSpell` for GLOBAL spells only — a located spell's face-up cast is
+   * added by `enumerateBoundActions` — so the cheaper list would grey out every located spell in
+   * the deck. And the bound list drops a spell whose targets cannot be satisfied at all, which is
+   * the same dead end this is here to close. Summon and Set pass through it unchanged, so they
+   * read identically either way.
+   */
+  const playable = useMemo(() => {
+    const summon = new Set<string>();
+    const cast = new Set<string>();
+    const set = new Set<string>();
+    for (const a of enumerateBoundActions(game)) {
+      if (a.t === 'Summon') summon.add(a.card);
+      else if (a.t === 'CastSpell') cast.add(a.card);
+      else if (a.t === 'SetCard') set.add(a.card);
+    }
+    return { summon, cast, set };
+  }, [game]);
 
   const selectedSetForFlip = Object.values(view.setCards).filter(
     (sc) => sc.owner === viewer && view.cardDefs[sc.cardId]!.kind === 'spell',
@@ -217,6 +438,46 @@ export function GameView({
 
   const pendingBurn = game.pendingBurn?.player === viewer ? game.pendingBurn : undefined;
 
+  /**
+   * Back out of whatever is in flight — Escape on the board, and the only way out of a
+   * half-picked multi-tile spell that isn't clicking a tile and hoping it gets refused.
+   */
+  function cancel() {
+    setTargeting(null);
+    setSelected(null);
+    setError('');
+  }
+
+  /**
+   * The per-piece action menus the board hangs off its own tiles.
+   *
+   * Rebuilt every render rather than memoised: every callback below closes over `dispatch` and
+   * `setTargeting`, so a dep list that kept the map stable would keep STALE closures with it.
+   * The build is a couple of passes over the viewer's own pieces — cheaper than the target
+   * enumeration this render already does.
+   */
+  const tileMenus = buildTileMenus({
+    game,
+    view,
+    viewer,
+    legal,
+    myTurn,
+    blocked: game.winner !== undefined || game.phase === 'gameover' || pendingBurn !== undefined,
+    targeting: targeting !== null,
+    playable,
+    inspectUnit,
+    onInspect,
+    onDispatch: dispatch,
+    onAbility: () => beginActivation({ kind: 'ability' }, leader.ability.effects),
+    onFlip: (setId, effects) => beginActivation({ kind: 'flip', set: setId }, effects),
+    onMoveSet: (setId) => setTargeting({ kind: 'moveset', set: setId }),
+    onSummon: (card) => setTargeting({ kind: 'summon', card }),
+    onSetCard: (card, stance) => setTargeting({ kind: 'set', card, stance }),
+    onCast: (card, def) => beginActivation({ kind: 'cast', card }, def.effects),
+  });
+
+  // Prompts name the key that is actually bound, not the one that shipped as the default.
+  const cancelKey = keyLabel(keybinds.cancel);
   const prompt = pendingBurn
     ? `Hand over ${ps.hand.length - 1} cards — burn one to the void to make room for the new draw.`
     : targeting === null
@@ -224,21 +485,31 @@ export function GameView({
         ? selectedUnit?.stance === 'defense'
           ? 'This unit is defending — it can only switch back to attack stance.'
           : shotTargets.length > 0
-            ? 'Click a highlighted tile to move / attack, or a ringed tile to shoot.'
-            : 'Click a highlighted tile to move / attack / fuse.'
-        : ''
-      : targeting.kind === 'summon'
-        ? 'Click an empty tile in the leader ring to summon.'
-        : targeting.kind === 'set'
-          ? `Click an empty tile in the leader ring to set face-down${targeting.stance === 'defense' ? ' in defense' : ''}.`
-          : targeting.kind === 'moveset'
-            ? 'Click an adjacent empty tile to move the face-down card (1 tile).'
-            : cardPick
-              // The card step runs first, so the tile count must not front-run it.
-              ? cardPick.kind === 'graveyard'
-                ? `Choose which ${cardPick.type} to raise.`
-                : 'Choose a card to search for.'
-              : `Pick ${targeting.needed - targeting.picked.length} more target tile(s).`;
+            ? `Click an outlined tile to move / attack, or a ringed tile to shoot. ${cancelKey} to drop it.`
+            : `Click an outlined tile to move / attack / fuse. ${cancelKey} to drop it.`
+        : myTurn
+          // The only place the two new keys are spelled out. It sits in the idle prompt because
+          // that is the moment a player has nothing else to read and is looking for what to do.
+          ? `Pick a piece to move it — or open its own actions with ⋯, right-click, or ${keyLabel(keybinds.actions)}.`
+          : ''
+      : cardPick
+        // The card step runs first, so the tile prompts must not front-run it.
+        ? cardPick.kind === 'graveyard'
+          ? `Choose which ${cardPick.type} to raise.`
+          : 'Choose a card to search for.'
+        : availableTargets.length === 0
+          // Reachable, and from more than one direction: an activation can want a tile and find
+          // none (a Raise with the ring walled off, a ChosenEnemy on a board holding nothing but
+          // leaders), and the hand offers `set` on a card the player cannot currently afford.
+          // Deliberately does not guess which — it says what the board can show, which is nothing.
+          ? `No legal tile for this — press ${cancelKey} to back out.`
+          : targeting.kind === 'summon'
+            ? 'Click an outlined tile to summon.'
+            : targeting.kind === 'set'
+              ? `Click an outlined tile to set face-down${targeting.stance === 'defense' ? ' in defense' : ''}.`
+              : targeting.kind === 'moveset'
+                ? 'Click an outlined tile to move the face-down card (1 tile).'
+                : `Pick ${targeting.needed - targeting.picked.length} more target tile(s) from the outlined ones. ${cancelKey} to cancel.`;
 
   const pickedTargets = targeting && 'picked' in targeting ? targeting.picked : [];
 
@@ -263,17 +534,21 @@ export function GameView({
       {/* Hover inspector. Hidden below xl, where there is no hover to speak of. */}
       <div className="detail-col">
         <Panel title="Card detail">
-          {hovered ? (
-            <CardDetailBody subject={hovered} names={names} />
+          {detail ? (
+            <CardDetailBody subject={detail} names={names} />
           ) : (
             <div className="detail-empty">
-              Hover a card in hand or a unit on the board to see its details here.
+              Hover, focus or select a card to see its details here.
             </div>
           )}
         </Panel>
       </div>
 
       <div className="board-col">
+        {shownBattles && (
+          <BattlePopup battles={shownBattles} viewer={viewer} onDone={() => setShownBattles(null)} />
+        )}
+
         <Board
           view={view}
           game={game}
@@ -284,23 +559,21 @@ export function GameView({
           moveTargets={moveTargets}
           shotTargets={shotTargets}
           pickedTargets={pickedTargets}
+          availableTargets={availableTargets}
           onTile={clickTile}
+          menus={tileMenus}
+          keybinds={keybinds}
+          onCancel={cancel}
           onHover={setHovered}
+          onFocusTile={setFocusedTile}
           onInspect={onInspect}
           inspectUnit={inspectUnit}
-        />
-
-        <Hand
-          view={view}
-          viewer={viewer}
-          myTurn={myTurn}
-          pendingBurn={pendingBurn !== undefined}
-          onInspect={onInspect}
-          onHover={setHovered}
-          onBurn={(index) => dispatch({ t: 'BurnCard', index })}
-          onSummon={(card) => setTargeting({ kind: 'summon', card })}
-          onCast={(card, def) => beginActivation({ kind: 'cast', card }, (def as SpellCardDef).effects)}
-          onSet={(card, stance) => setTargeting({ kind: 'set', card, stance })}
+          focusOn={leaderUnit?.pos ?? null}
+          // Changes exactly once per turn that is MINE, so the board lands on my
+          // leader as the turn opens and never twitches back to it mid-turn.
+          // Null while it is the other player's (so hotseat does not hand the
+          // cursor to a leader whose turn it is not) and once the game is over.
+          focusKey={myTurn && game.winner === undefined ? `${active}:${ps.turnCount}` : null}
         />
 
         {/* Below xl the command rail folds into a drawer under the board. */}
@@ -318,6 +591,26 @@ export function GameView({
           </Button>
         </div>
       </div>
+
+      {/*
+        The hand is a sibling of the board column, not a child of it, so it gets
+        the FULL width of the layout instead of the board's middle track. Seven
+        cards cannot fit a ~560px column without overlapping each other by half a
+        card, which buries the name and stat plate at the foot of every card.
+      */}
+      <Hand
+        view={view}
+        viewer={viewer}
+        myTurn={myTurn}
+        pendingBurn={pendingBurn !== undefined}
+        playable={playable}
+        onInspect={onInspect}
+        onHover={setHovered}
+        onBurn={(index) => dispatch({ t: 'BurnCard', index })}
+        onSummon={(card) => setTargeting({ kind: 'summon', card })}
+        onCast={(card, def) => beginActivation({ kind: 'cast', card }, (def as SpellCardDef).effects)}
+        onSet={(card, stance) => setTargeting({ kind: 'set', card, stance })}
+      />
 
       <div className={`side${drawerOpen ? '' : ' side-collapsed'}`}>
         <StatusHud
@@ -345,23 +638,14 @@ export function GameView({
         )}
 
         {selectedUnit && !selectedUnit.isLeader && selectedUnit.owner === viewer && (
-          <StancePanel
-            game={game}
-            unit={selectedUnit}
-            actions={stanceActions}
-            myTurn={myTurn}
-            onDispatch={dispatch}
-          />
+          <StancePanel game={game} unit={selectedUnit} actions={stanceActions} />
         )}
 
         <LeaderPanel
           leader={leader}
           sp={ps.sp}
-          myTurn={myTurn}
           setSpells={selectedSetForFlip}
           cardDefs={view.cardDefs}
-          onActivate={() => beginActivation({ kind: 'ability' }, leader.ability.effects)}
-          onFlip={(setId, def) => beginActivation({ kind: 'flip', set: setId }, def.effects)}
           onInspect={onInspect}
         />
 

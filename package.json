@@ -15,8 +15,10 @@
     "start": "node server/main.ts",
     "ab": "node --import ./scripts/register-ts-ext.mjs scripts/ab.ts",
     "art": "node --import ./scripts/register-ts-ext.mjs --env-file=.env scripts/genCardArt.ts",
+    "terrain": "node --import ./scripts/register-ts-ext.mjs scripts/genTerrainTex.ts",
     "diagnose": "node --import ./scripts/register-ts-ext.mjs scripts/diagnose.ts",
-    "impact": "node --import ./scripts/register-ts-ext.mjs scripts/cardImpact.ts"
+    "impact": "node --import ./scripts/register-ts-ext.mjs scripts/cardImpact.ts",
+    "terrain:all": "npm run terrain -- --style=stylised --size=1024 && npm run terrain -- --style=stylised --size=512 && npm run terrain -- --style=photoreal --size=1024 && npm run terrain -- --style=photoreal --size=512"
   },
   "dependencies": {
     "clsx": "^2.1.1",

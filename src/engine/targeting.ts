@@ -65,6 +65,51 @@ export interface ReachConstraint {
   max?: number;
 }
 
+/**
+ * The three things a player can activate, in the shape the GUI's target picker already
+ * carries them. `flip` covers a set SPELL; flipping a set unit is a summon and aims at
+ * nothing.
+ */
+export type ActivationSource =
+  | { kind: 'cast'; card: string }
+  | { kind: 'flip'; set: string }
+  | { kind: 'ability' };
+
+/**
+ * Where an activation resolves from and how far it may reach — `undefined` for a global
+ * one, which is unconstrained, and for a source that aims at nothing at all.
+ *
+ * Exported because the GUI's tile picker needs exactly this to outline the tiles a player
+ * may click, and `enumerateBoundActions` below needs it to bind the same tiles. Deriving
+ * it twice is how a board ends up offering a target the engine then refuses — the same
+ * failure the `isOpen`/`isEmpty` note under `raiseTile` records.
+ */
+export function activationReach(s: GameState, owner: PlayerId, src: ActivationSource): ReachConstraint | undefined {
+  switch (src.kind) {
+    case 'cast': {
+      const def = s.cardDefs[src.card];
+      if (def?.kind !== 'spell' || def.scope !== 'located') return undefined;
+      return { resolvePos: leaderOf(s, owner).pos };
+    }
+    case 'flip': {
+      // Anchored to the SET CARD, not the leader: a located spell flipped face-up resolves
+      // from wherever it was lying, which is the whole point of setting it forward.
+      const sc = s.setCards[src.set];
+      const def = sc ? s.cardDefs[sc.cardId] : undefined;
+      if (!sc || def?.kind !== 'spell' || def.scope !== 'located') return undefined;
+      return { resolvePos: sc.pos };
+    }
+    case 'ability': {
+      const ability = s.leaders[owner].ability;
+      // Same source as the engine's own check in `doActivateAbility` — see `abilityReach`.
+      if (!ability.located) return undefined;
+      return { resolvePos: leaderOf(s, owner).pos, max: abilityReach() };
+    }
+    default:
+      return assertNever(src, 'ActivationSource');
+  }
+}
+
 function assertNever(x: never, what: string): never {
   throw new Error(`targeting.ts does not handle ${what}: ${JSON.stringify(x)}`);
 }
@@ -453,8 +498,7 @@ export function enumerateBoundActions(s: GameState): Action[] {
       case 'CastSpell': {
         const def = s.cardDefs[a.card];
         if (def?.kind !== 'spell') break;
-        const reach = def.scope === 'located' ? { resolvePos: leaderPos } : undefined;
-        out.push(...bind(s, owner, a, def.effects, reach));
+        out.push(...bind(s, owner, a, def.effects, activationReach(s, owner, { kind: 'cast', card: a.card })));
         break;
       }
       case 'FlipCard': {
@@ -465,17 +509,12 @@ export function enumerateBoundActions(s: GameState): Action[] {
           out.push(a); // flip-summon of a set unit takes no targets
           break;
         }
-        const reach = def.scope === 'located' ? { resolvePos: sc.pos } : undefined;
-        out.push(...bind(s, owner, a, def.effects, reach));
+        out.push(...bind(s, owner, a, def.effects, activationReach(s, owner, { kind: 'flip', set: a.set })));
         break;
       }
       case 'ActivateAbility': {
         const ability = s.leaders[owner].ability;
-        // Same source as the engine's own check in `doActivateAbility` — see `abilityReach`.
-        const reach: ReachConstraint | undefined = ability.located
-          ? { resolvePos: leaderPos, max: abilityReach() }
-          : undefined;
-        out.push(...bind(s, owner, a, ability.effects, reach));
+        out.push(...bind(s, owner, a, ability.effects, activationReach(s, owner, { kind: 'ability' })));
         break;
       }
       default:

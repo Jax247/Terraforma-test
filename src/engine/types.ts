@@ -598,6 +598,11 @@ export interface GameState {
    */
   rngSeed: number;
   log: string[];
+  /**
+   * Combat exchanges produced by the action that made this state — see {@link BattleReport}.
+   * Presentational only, and reset on every action, so it is never a growing history.
+   */
+  battles: BattleReport[];
   // Content registry lives in state so tests can inject sim-only decks.
   cardDefs: Record<string, CardDef>;
   tokenDefs: Record<string, TokenDef>;
@@ -639,6 +644,63 @@ export type Action =
   /** Resolve a pending hand-cap overflow: burn hand[index] to the void (never the incoming card). */
   | { t: 'BurnCard'; index: number }
   | { t: 'EndTurn' };
+
+/**
+ * One line of a stat sum — a buff, a debuff, a terrain reading.
+ *
+ * Produced only on request; see `atkBreakdown` / `defBreakdown` in stats.ts. Lives here rather
+ * than in stats.ts so `BattleReport` below can name it without types.ts importing anything.
+ */
+export interface StatTerm {
+  /** Printed verbatim by the UI. */
+  label: string;
+  amount: number;
+  /** Coarse origin, for grouping and colour. */
+  kind: 'base' | 'terrain' | 'keyword' | 'aura' | 'status' | 'counter' | 'flank';
+}
+
+export interface StatBreakdown {
+  total: number;
+  terms: StatTerm[];
+}
+
+/** One combatant's side of a {@link BattleReport}. */
+export interface BattleSide {
+  unitId: string;
+  /** Card (or token) def id, so the UI can show the art. */
+  cardId: string;
+  name: string;
+  owner: PlayerId;
+  type: TypeName;
+  isLeader: boolean;
+  isToken: boolean;
+  /** Which stat this side actually fought on — a defending unit is met on its DEF. */
+  stat: 'atk' | 'def';
+  /** That stat's total, itemised. */
+  breakdown: StatBreakdown;
+  /** Did this piece leave the board in the exchange. */
+  destroyed: boolean;
+}
+
+/**
+ * A single combat exchange, recorded as it resolves so the UI can show what actually happened
+ * rather than re-deriving it from the state afterwards — by which point the loser is gone and
+ * the auras that decided the fight may no longer apply.
+ *
+ * ⚠ Presentational. `cloneState` drops it and `stateFingerprint` excludes it, exactly as both
+ * do for `log`: it must never be able to make two clients disagree about the game.
+ */
+export interface BattleReport {
+  /** The defended tile — the battlefield in melee. */
+  tile: Coord;
+  ranged: boolean;
+  attacker: BattleSide;
+  defender: BattleSide;
+  /** Leader life each player lost here: overflow, pierce, reflect or chip. */
+  lifeLoss: [number, number];
+  /** The engine's own log lines for the exchange, so there is no second wording to maintain. */
+  lines: string[];
+}
 
 export interface CombatCtx {
   role: 'attacker' | 'defender';
