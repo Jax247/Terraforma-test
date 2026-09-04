@@ -227,7 +227,7 @@ export function CardFrame({
           {frame}
           {body}
         </button>
-        <div className={styles['actions']}>{actions}</div>
+        <div className={clsx(styles['actions'], 'card-actions')}>{actions}</div>
       </div>
     );
   }
@@ -236,7 +236,7 @@ export function CardFrame({
     <>
       {frame}
       {body}
-      {actions && <div className={styles['actions']}>{actions}</div>}
+      {actions && <div className={clsx(styles['actions'], 'card-actions')}>{actions}</div>}
     </>
   );
 

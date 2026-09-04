@@ -19,15 +19,18 @@ import {
   tileAt,
   unitAt,
 } from './board';
-import { conditionHolds, effectiveAtk, effectiveDef, favoredTerrain } from './stats';
+import { atkBreakdown, conditionHolds, defBreakdown, effectiveAtk, effectiveDef, favoredTerrain } from './stats';
 import type {
   Action,
+  BattleSide,
   CardDef,
+  CombatCtx,
   Condition,
   Coord,
   Duration,
   Effect,
   GameState,
+  StatBreakdown,
   PlayerId,
   Rule,
   SearchFilter,
@@ -1290,6 +1293,17 @@ function fireCombatTriggers(s: GameState, attacker: Unit, defender: Unit): boole
   return true;
 }
 
+/**
+ * A combat exchange, recorded.
+ *
+ * The resolution itself is unchanged and lives in `resolveContact` below; this wraps it to
+ * capture what the UI needs — both sides itemised, who died, what it cost in life — at the one
+ * moment the information exists. Afterwards the loser is off the board and the auras that
+ * decided the fight may no longer hold, so this cannot be reconstructed from the result.
+ *
+ * The summary is the engine's OWN log lines for the exchange, sliced out rather than re-worded,
+ * so the popup and the log can never describe the same fight differently.
+ */
 function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { advance: boolean; ranged?: boolean }): void {
   // ⚠ Guard used to INTERCEPT here (2026-07-18 experiment, never enabled): an attack on a guarded
   // leader was redirected onto the guard. Re-spec'd 2026-08-09 to a PIN in the movement rule — see
@@ -1297,6 +1311,67 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
   // who you end up fighting.
   if (!fireCombatTriggers(s, attacker, defender)) return;
   const battleTile = defender.pos;
+  const ranged = opts.ranged === true;
+
+  /**
+   * ⚠ ONE call, hoisted out of the branches below, because `flankBonus` LOGS — evaluating it
+   * again to itemise it would print the flank line twice. Leaders neither give nor receive flank
+   * support, which is why every branch that used to call it guarded on exactly this.
+   */
+  const flank = attacker.isLeader || defender.isLeader ? 0 : flankBonus(s, attacker, battleTile);
+
+  // A defending unit is met on its DEF; a leader is always met on its ATK and never defends.
+  // Mirrors the branch order in `resolveContact` — which stat is DISPLAYED must be the one that
+  // was fought on.
+  const defenderOnDef = !defender.isLeader && defender.stance === 'defense';
+  const aCtx: CombatCtx = { role: 'attacker', battleTile, opponentId: defender.id, ranged };
+  const dCtx: CombatCtx = { role: 'defender', battleTile, opponentId: attacker.id, ranged };
+  const aBreak = atkBreakdown(s, attacker, aCtx);
+  if (flank !== 0) {
+    aBreak.terms.push({ label: 'Flanking allies', amount: flank, kind: 'flank' });
+    aBreak.total += flank;
+  }
+  const dBreak = defenderOnDef ? defBreakdown(s, defender, dCtx) : atkBreakdown(s, defender, dCtx);
+
+  const from = s.log.length;
+  const lifeBefore: [number, number] = [s.players[0].leaderLife, s.players[1].leaderLife];
+
+  resolveContact(s, attacker, defender, { ...opts, battleTile, ranged, flank });
+
+  s.battles.push({
+    tile: battleTile,
+    ranged,
+    attacker: side(attacker, 'atk', aBreak, s),
+    defender: side(defender, defenderOnDef ? 'def' : 'atk', dBreak, s),
+    lifeLoss: [lifeBefore[0] - s.players[0].leaderLife, lifeBefore[1] - s.players[1].leaderLife],
+    lines: s.log.slice(from),
+  });
+}
+
+/** Snapshot one combatant for the report. `destroyed` is read after the exchange has resolved. */
+function side(unit: Unit, stat: 'atk' | 'def', breakdown: StatBreakdown, s: GameState): BattleSide {
+  return {
+    unitId: unit.id,
+    cardId: unit.cardId,
+    name: unit.name,
+    owner: unit.owner,
+    type: unit.type,
+    isLeader: unit.isLeader,
+    isToken: unit.isToken,
+    stat,
+    breakdown,
+    // Leaders are never destroyed as a piece; they leave the board only when the game ends.
+    destroyed: s.units[unit.id] === undefined,
+  };
+}
+
+function resolveContact(
+  s: GameState,
+  attacker: Unit,
+  defender: Unit,
+  opts: { advance: boolean; ranged?: boolean; battleTile: Coord; ranged2?: never; flank: number },
+): void {
+  const { battleTile, flank } = opts;
   // A shot leaves the shooter where it stands, so terrain resolves per-tile rather than on the
   // battle tile for both — see `terrainTile` in stats.ts.
   const ranged = opts.ranged === true;
@@ -1336,7 +1411,7 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
   // it, since leaders carry no Piercing), and "attritional for the leader" still bills the leader,
   // now as the wall's reflect onto its own pool instead of a full-ATK strikeback.
   if (defender.stance === 'defense') {
-    resolveDefenseCombat(s, attacker, defender, battleTile, aEff, opts);
+    resolveDefenseCombat(s, attacker, defender, battleTile, aEff, flank, opts);
     return;
   }
 
@@ -1365,7 +1440,7 @@ function resolveCombat(s: GameState, attacker: Unit, defender: Unit, opts: { adv
   }
 
   const dEff = effectiveAtk(s, defender, { role: 'defender', battleTile, opponentId: attacker.id, ranged });
-  const aTot = aEff + flankBonus(s, attacker, battleTile);
+  const aTot = aEff + flank;
   // A defender that cannot hurt its attacker loses ties, and a losing attacker bounces off
   // instead of dying. Two ways to be harmless: denied your offence, or unable to REACH.
   const helpless = cannotStrikeBack(defender) || !canRetaliate(s, defender, attacker, ranged);
@@ -1425,9 +1500,11 @@ function resolveDefenseCombat(
   defender: Unit,
   battleTile: Coord,
   aEff: number,
+  /** Already computed and logged by `resolveCombat`; zero when a leader is involved. */
+  flank: number,
   opts: { advance: boolean; ranged?: boolean },
 ): void {
-  const aTot = aEff + (attacker.isLeader ? 0 : flankBonus(s, attacker, battleTile));
+  const aTot = aEff + flank;
   const wall = effectiveDef(s, defender, { role: 'defender', battleTile, opponentId: attacker.id, ranged: opts.ranged === true });
 
   if (aTot > wall) {
@@ -2490,6 +2567,7 @@ export function initGame(cfg: GameConfig): GameState {
     nextId: 1,
     rngSeed: cfg.seed ?? DEFAULT_SEED,
     log: [],
+    battles: [],
     cardDefs: structuredClone(cfg.cardDefs),
     tokenDefs: structuredClone(cfg.tokenDefs),
     leaders: [structuredClone(cfg.players[0].leader), structuredClone(cfg.players[1].leader)],

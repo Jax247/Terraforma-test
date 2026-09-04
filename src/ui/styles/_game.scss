@@ -19,12 +19,26 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     'board'
+    'hand'
     'side';
 
   @include respond-to(xl) {
     justify-items: stretch;
+    // The game fills the window and the page does not scroll — a board you have
+    // to scroll to see is not a board. Rows are auto/1fr so the columns get the
+    // whole height and can scroll INSIDE themselves (see .side and .detail-col).
+    align-items: stretch;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     grid-template-columns: 19rem minmax(0, 1fr) 22rem;
-    grid-template-areas: 'detail board side';
+    // The hand gets its own full-width row under all three columns. `1fr auto`
+    // gives the board every pixel the hand does not need, which is also what
+    // keeps the whole thing inside the window.
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'detail board side'
+      'hand hand hand';
   }
 
   @include below(md) {
@@ -33,13 +47,46 @@
   }
 }
 
+// Lock the document to the viewport, but ONLY on the game screen and only where
+// there is room for it.
+//
+// `:has()` scopes it to the route without a body class: the deck builder, the map
+// editor and the card lists are all legitimately taller than the window and must
+// keep scrolling. Below `xl` the rails fold into a drawer and the board is the
+// whole screen, so a phone scrolls normally too — cramming the hand, the board and
+// a drawer into 100dvh on a small screen would shrink all three past usefulness.
+@include respond-to(xl) {
+  html:has(.game-layout),
+  body:has(.game-layout) {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body:has(.game-layout) #root {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  // `min-height: 0` is the load-bearing half: without it a flex child refuses to
+  // shrink below its content and the layout pushes straight back out of the window.
+  body:has(.game-layout) #main {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
 .board-col {
   grid-area: board;
+  // Positioning context for the battle popup, which floats over the board it describes.
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: var(--space-3);
   min-width: 0;
+  min-height: 0;
   max-width: 100%;
 
   // The tile size lives HERE, not on .board, because the hand panel sizes itself
@@ -48,7 +95,17 @@
   --tile: clamp(2.25rem, min(11.5vw, 5.5rem), 5.5rem);
 
   @include respond-to(xl) {
-    --tile: clamp(3rem, 5.5vw, 5.75rem);
+    // Sized off the HEIGHT as well as the width, because at `xl` the page no
+    // longer scrolls: a board too tall for the window is not merely awkward, it
+    // is clipped and unreachable. Width alone put the hand below the fold on
+    // every laptop at or under 900px — 1440x900, 1366x768 and 1280x720 all lost
+    // it, and 800px lost the top of the board too.
+    //
+    // The 23rem is everything that is not board: the app bar, the layout gutters,
+    // and the hand row beneath it. Divided by 7 because that is the board. The
+    // figure is measured, not derived — at 21rem the hand still finished 6-11px
+    // under the fold at every laptop height tested.
+    --tile: clamp(2.5rem, min(5.5vw, calc((100dvh - 23rem) / 7)), 5.75rem);
   }
 }
 
@@ -56,8 +113,9 @@
   grid-area: detail;
 
   @include respond-to(xl) {
-    position: sticky;
-    top: calc(var(--space-4) + 3rem);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   // The hover inspector is meaningless on touch, where there is no hover. Phones
@@ -82,9 +140,11 @@
   width: 100%;
 
   @include respond-to(xl) {
-    // Match the board column's sticky rail behaviour on wide screens.
-    position: sticky;
-    top: calc(var(--space-4) + 3rem);
+    // Sticky is pointless once the page cannot scroll; the rail is its own
+    // scroller instead, so a long log stays reachable without moving the board.
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
@@ -524,12 +584,445 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
 }
 
 // ---------------------------------------------------------------------------
+// Battle popup
+//
+// Floats over the board rather than beside it: the fight is the thing the player
+// is looking at, and a panel in the rail would be read after the moment passed.
+// Deliberately `pointer-events` only on itself — the board underneath stays live,
+// so this never blocks a click during the couple of seconds it is up.
+// ---------------------------------------------------------------------------
+
+.battle-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  // See BattlePopup.tsx: centring lives here because framer-motion owns the panel's
+  // own `transform`, and this is what leaves the board underneath clickable.
+  pointer-events: none;
+}
+
+.battle-popup {
+  pointer-events: auto;
+  width: min(30rem, calc(100% - var(--space-4)));
+  padding: var(--space-3);
+  @include panel(var(--surface-overlay));
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-3);
+  cursor: pointer;
+}
+
+.battle-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  @include inscribed(var(--text-2xs));
+  @include rule-under;
+}
+
+.battle-at {
+  @include numeric;
+  color: var(--ink-muted);
+}
+
+.battle-count {
+  @include numeric;
+  margin-left: auto;
+  color: var(--ink-muted);
+}
+
+.battle-sides {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  gap: var(--space-2);
+}
+
+.battle-vs {
+  @include inscribed(var(--text-2xs));
+  align-self: center;
+  color: var(--accent);
+}
+
+.battle-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.battle-side-p0 {
+  --card-accent: var(--faction-0);
+}
+
+.battle-side-p1 {
+  --card-accent: var(--faction-1);
+}
+
+// The loser reads as gone at a glance, without having to parse the log line below.
+.battle-side-lost {
+  .battle-card {
+    filter: grayscale(0.8);
+    opacity: 0.65;
+  }
+
+  .battle-value {
+    text-decoration: line-through;
+    color: var(--ink-muted);
+  }
+}
+
+.battle-card {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  height: 4.5rem;
+  border: 2px solid var(--card-accent, var(--border-strong));
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+
+.battle-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.battle-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, #0b0c0fee 10%, #0b0c0f22 70%);
+}
+
+.battle-name {
+  position: relative;
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-primary);
+  @include truncate;
+}
+
+.battle-destroyed {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--state-danger);
+  filter: drop-shadow(0 1px 2px #000);
+}
+
+.battle-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.battle-stat {
+  @include inscribed(var(--text-3xs));
+}
+
+.battle-value {
+  @include numeric;
+  font-size: var(--text-xl);
+  line-height: 1;
+  color: var(--ink-primary);
+}
+
+.battle-terms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.battle-term {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-normal);
+}
+
+.battle-term-label {
+  @include truncate;
+}
+
+.battle-term-base {
+  color: var(--ink-secondary);
+}
+
+.battle-term-none {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+// Sign, not hue, is what says buff or debuff — the colour only reinforces it, so
+// this still reads correctly to anyone who cannot tell the two apart.
+.battle-term-up {
+  color: var(--state-ok);
+}
+
+.battle-term-down {
+  color: var(--state-danger);
+}
+
+.battle-amount {
+  @include numeric;
+  flex: 0 0 auto;
+}
+
+.battle-lp {
+  @include numeric;
+  font-size: var(--text-2xs);
+  color: var(--ink-secondary);
+}
+
+.battle-lines {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-normal);
+  color: var(--ink-muted);
+}
+
+// ---------------------------------------------------------------------------
+// Per-piece action menu
+//
+// The ⋯ button is the mouse and touch twin of the Actions key. Unlike `.unit-info`
+// it stays visible at EVERY width: since the command rail's buttons became a
+// readout, this is the only way to use a leader ability or flip a card on a phone.
+// ---------------------------------------------------------------------------
+
+.tile-actions {
+  position: absolute;
+  top: 1px;
+  // Clear of `.unit-info` at top-right; on a face-down card, which has no info
+  // button, it simply sits alone on the left.
+  left: 1px;
+  // Above the tokens, not among the tile chrome. The ladder in `.unit` runs
+  // selected 2 / focus ring 3 / units 4 / a token in flight 6 — a button you have
+  // to be able to hit has to clear all of it, including a token tweening past on
+  // its way somewhere else. At 3 the unit card simply swallowed every click.
+  z-index: 7;
+  display: flex;
+  padding: 1px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: #0b0c0fcc;
+  color: #fff;
+  opacity: 0.55;
+  cursor: pointer;
+  line-height: 1;
+
+  &:hover {
+    opacity: 1;
+  }
+
+  &[aria-expanded='true'] {
+    opacity: 1;
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.action-menu {
+  position: fixed;
+  z-index: 60;
+  // Wide enough for "Flip-summon <a long card name>" without wrapping every row,
+  // capped so it never spans a phone edge to edge.
+  min-width: 14rem;
+  max-width: min(20rem, calc(100vw - 1rem));
+  max-height: min(24rem, calc(100vh - 1rem));
+  padding: var(--space-2);
+  @include panel(var(--surface-overlay));
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-3);
+  @include scroll-region;
+}
+
+.action-menu-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  @include rule-under;
+}
+
+.action-menu-title {
+  @include inscribed;
+  @include truncate;
+}
+
+.action-menu-back {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-secondary);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ink-primary);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.action-menu-group + .action-menu-group {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.action-menu-group-label {
+  @include inscribed(var(--text-3xs));
+  padding: 0 var(--space-2) var(--space-1);
+}
+
+.action-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+
+  // The roving cursor is what focus lands on, so the highlight has to follow focus
+  // and not only hover — a keyboard player never generates a hover.
+  &:hover,
+  &:focus {
+    background: var(--accent-faint);
+    outline: none;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+    outline-offset: -2px;
+  }
+}
+
+// `aria-disabled`, not `disabled` — the item keeps its focus so its reason can be
+// read. Dimmed, but never so far that the reason stops being legible.
+.action-menu-item-off {
+  cursor: not-allowed;
+
+  .action-menu-label {
+    color: var(--ink-muted);
+  }
+
+  &:hover,
+  &:focus {
+    background: var(--surface-inset);
+  }
+}
+
+.action-menu-icon {
+  display: flex;
+  flex: 0 0 auto;
+  padding-top: 1px;
+  color: var(--ink-secondary);
+}
+
+.action-menu-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.action-menu-label {
+  @include truncate;
+}
+
+.action-menu-reason {
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
+  color: var(--ink-muted);
+  white-space: normal;
+}
+
+.action-menu-hint {
+  @include numeric;
+  flex: 0 0 auto;
+  padding-top: 1px;
+  font-size: var(--text-2xs);
+  color: var(--ink-secondary);
+}
+
+.action-menu-chevron {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--ink-muted);
+}
+
+// ---- Rail readouts ---------------------------------------------------------
+// What is left of the stance and leader panels now their buttons live on the board.
+
+.panel-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  color: var(--ink-muted);
+}
+
+.setspell-list {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 2px 0;
+  }
+}
+
+.setspell-at {
+  @include numeric;
+  color: var(--ink-muted);
+}
+
+// ---------------------------------------------------------------------------
 // Hand
 // ---------------------------------------------------------------------------
 
 .hand-panel {
+  grid-area: hand;
   width: 100%;
   max-width: calc(var(--tile) * 7 + var(--space-4) + 12px);
+  justify-self: center;
+
+  @include respond-to(xl) {
+    // Off the board's leash. The 7-tile cap is right when the hand sits under
+    // the board, and wrong now that it spans the layout — it was forcing a
+    // 66px overlap on a 136px card, which hid the name and stats of all but the
+    // last card in hand.
+    max-width: min(100%, 78rem);
+  }
 }
 
 .hand {
@@ -551,6 +1044,132 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
       flex-shrink: 0;
     }
   }
+
+  // ---- Held like a hand of cards -------------------------------------------
+  // Where the window is the budget, the hand has to spend less of it. Fanning the
+  // cards under each other buys back roughly a third of the row, and it is how a
+  // hand actually looks — the wrapped grid read as a shop shelf.
+  //
+  // The overlap is a negative margin rather than a transform so the row's WIDTH
+  // genuinely shrinks; a transform would slide the cards over each other and
+  // leave the row as wide as it ever was.
+  @include respond-to(xl) {
+    --hand-overlap: 1.5rem;
+    flex-wrap: nowrap;
+    gap: 0;
+    // Room above for the action bar to pop into without being clipped.
+    padding-top: 2.25rem;
+    align-items: flex-end;
+    // Centred, so a fan of three sits under the middle of the board rather than
+    // trailing off its left edge. Only at `xl`: below that the row is a
+    // horizontal scroller, and centring a scroller puts its first card out of
+    // reach behind the start edge.
+    justify-content: center;
+
+    > * {
+      position: relative;
+      flex: 0 1 auto;
+      min-width: 0;
+      margin-left: calc(-1 * var(--hand-overlap));
+
+      &:first-child {
+        margin-left: 0;
+      }
+    }
+
+    // ⚠ The lift goes on the CARD, not on the wrapper. Every wrapper is a
+    // framer-motion `layout` element, so it carries an inline `transform` that
+    // the projection owns and rewrites — a `transform` declared here is simply
+    // overwritten, and the card never moves. Its child is untouched by motion,
+    // so the lift lands there. (The margins below are fine on the wrapper: they
+    // are layout, which is exactly what `layout` is there to animate.)
+    > * > * {
+      transition: transform var(--motion-base) var(--ease-out);
+    }
+
+    > *:hover > *,
+    > *:focus-within > * {
+      transform: translateY(-0.5rem);
+    }
+
+    // The card under the pointer (or holding focus) comes out of the fan: lifted,
+    // raised over its neighbours, and given back its own margin so the cards on
+    // either side move aside rather than merely sitting behind it.
+    //
+    // `:focus-within` and not `:focus` — focus lands on the inspect button or on
+    // one of the action buttons, never on the wrapper itself, so keyboard play
+    // gets exactly the same reveal as the mouse.
+    > *:hover,
+    > *:focus-within {
+      z-index: 5;
+      margin-left: 0;
+      margin-right: var(--hand-overlap);
+      transform: translateY(-0.4rem);
+    }
+
+    > *:first-child:hover,
+    > *:first-child:focus-within {
+      margin-left: 0;
+    }
+  }
+}
+
+// ---- The hand's action bar --------------------------------------------------
+// summon / set / cast / burn, floated ABOVE the revealed card instead of stacked
+// under every card in the row.
+//
+// Two things come out of that. The row loses the ~4rem of permanent button stack
+// under it, which is most of what the window budget needed back; and the choice
+// appears attached to the card it applies to, at the moment you are looking at it.
+//
+// Absolutely positioned, so it costs no layout at all — the reason the reveal does
+// not shove the board when it opens.
+.hand .card-actions {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1);
+  white-space: nowrap;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  // Hidden by opacity rather than `visibility` or `display`, because a hidden
+  // button is not focusable and tabbing into the hand is how the keyboard reaches
+  // these at all. Transparent-but-focusable means the first Tab reveals the bar.
+  pointer-events: none;
+  transform: translate(-50%, 0.25rem);
+  transition:
+    opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out);
+
+  @include below(xl) {
+    // Below xl the page scrolls and the row wraps, so the buttons stay where they
+    // were: under the card, always visible, no hover required on a touch screen.
+    position: static;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    flex-wrap: wrap;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    margin-top: var(--space-2);
+  }
+}
+
+.hand > *:hover .card-actions,
+.hand > *:focus-within .card-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
 }
 
 .hand-meta {

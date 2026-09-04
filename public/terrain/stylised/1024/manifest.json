@@ -1,0 +1,53 @@
+{
+  "style": "stylised",
+  "size": 1024,
+  "surface": 512,
+  "fast": false,
+  "maps": {
+    "normal": {
+      "albedo": 24578,
+      "surface": 258352,
+      "prelit": 40016
+    },
+    "forest": {
+      "albedo": 34620,
+      "surface": 259276,
+      "prelit": 31232
+    },
+    "mountain": {
+      "albedo": 32302,
+      "surface": 420448,
+      "prelit": 55552
+    },
+    "sea": {
+      "albedo": 29712,
+      "surface": 96904,
+      "prelit": 33402
+    },
+    "grassland": {
+      "albedo": 51224,
+      "surface": 231218,
+      "prelit": 55730
+    },
+    "desert": {
+      "albedo": 31232,
+      "surface": 169658,
+      "prelit": 22938
+    },
+    "shadow": {
+      "albedo": 53810,
+      "surface": 203332,
+      "prelit": 32398
+    },
+    "sanctuary": {
+      "albedo": 12348,
+      "surface": 258526,
+      "prelit": 55778
+    },
+    "wall": {
+      "albedo": 8970,
+      "surface": 275746,
+      "prelit": 38244
+    }
+  }
+}

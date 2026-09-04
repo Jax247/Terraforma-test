@@ -71,12 +71,15 @@ export function wsUrl(): string {
 }
 
 /**
- * FNV-1a hash over the dynamic game state (log excluded — it's cosmetic).
+ * FNV-1a hash over the dynamic game state (log and battle reports excluded — both cosmetic).
  * Cheap desync tripwire: attached to action messages so the receiver can
  * detect divergence instead of playing on silently.
  */
 export function stateFingerprint(s: GameState): number {
-  const json = JSON.stringify({ ...s, log: undefined });
+  // `battles` joins `log` in the exclusion: both are presentational records of what just
+  // happened, not state the two clients must agree on, and a desync tripwire that trips on
+  // wording would be worse than useless.
+  const json = JSON.stringify({ ...s, log: undefined, battles: undefined });
   let h = 0x811c9dc5;
   for (let i = 0; i < json.length; i++) {
     h ^= json.charCodeAt(i);

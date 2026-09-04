@@ -1,0 +1,17 @@
+{
+  "on": true,
+  "tilt": 40,
+  "spin": 0,
+  "persp": 1750,
+  "relief": 9,
+  "zoom": 2.1,
+  "lean": 0,
+  "card": 0,
+  "follow": true,
+  "chrome": 78,
+  "texture": 0,
+  "gl": true,
+  "scenery": true,
+  "photoreal": true,
+  "hires": true
+}

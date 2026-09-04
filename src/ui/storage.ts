@@ -8,6 +8,8 @@ import { DECK_CARDS, DECKS } from '../engine';
 import type { BoardLayout, CardDef, DeckDef, LeaderDef } from '../engine';
 import type { AiConfig } from './AiSettings';
 import type { ExperimentConfig } from './experiments';
+import { DEFAULT_KEYBINDS } from './keybinds';
+import type { Keybinds } from './keybinds';
 import type { MotionSetting } from './motion';
 
 const BOARDS_KEY = 'terraforma.customBoards.v1';
@@ -105,14 +107,24 @@ export const saveSetup = (setup: StoredSetup): void => saveObject(SETUP_KEY, set
 export interface StoredSettings {
   /** Animations. `auto` follows prefers-reduced-motion; see src/ui/motion.ts. */
   motion: MotionSetting;
+  /** Which key runs which board command; see src/ui/keybinds.ts. */
+  keybinds: Keybinds;
+  /** Show the brief both-cards panel when a combat resolves; see game/BattlePopup.tsx. */
+  battlePopup: boolean;
 }
 
-export const DEFAULT_SETTINGS: StoredSettings = { motion: 'auto' };
+export const DEFAULT_SETTINGS: StoredSettings = { motion: 'auto', keybinds: DEFAULT_KEYBINDS, battlePopup: true };
 
-export const loadSettings = (): StoredSettings => ({
-  ...DEFAULT_SETTINGS,
-  ...loadObject<Partial<StoredSettings>>(SETTINGS_KEY),
-});
+export const loadSettings = (): StoredSettings => {
+  const stored = loadObject<Partial<StoredSettings>>(SETTINGS_KEY);
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    // Merged a level deeper than the rest: settings saved before a command existed carry a
+    // keybind map without it, and a plain spread would leave that command on no key at all.
+    keybinds: { ...DEFAULT_KEYBINDS, ...stored?.keybinds },
+  };
+};
 export const saveSettings = (s: StoredSettings): void => saveObject(SETTINGS_KEY, s);
 
 // --- Online play ---

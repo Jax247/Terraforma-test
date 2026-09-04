@@ -4,6 +4,7 @@ import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
+import { useMotionDuration } from './motion';
 import styles from './components/Modal.module.scss';
 
 interface ModalProps {
@@ -66,6 +67,10 @@ export function Modal({ title, onClose, children, top, wide, narrow }: ModalProp
     };
   }, [onClose]);
 
+  // Zeroed under `motion: off` — see useMotionDuration.
+  const backdropFade = useMotionDuration(0.12);
+  const dialogFade = useMotionDuration(0.16);
+
   return (
     <AnimatePresence>
       <motion.div
@@ -74,7 +79,7 @@ export function Modal({ title, onClose, children, top, wide, narrow }: ModalProp
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.12 }}
+        transition={{ duration: backdropFade }}
       >
         <motion.div
           ref={dialogRef}
@@ -87,7 +92,7 @@ export function Modal({ title, onClose, children, top, wide, narrow }: ModalProp
           initial={{ opacity: 0, y: 8, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.98 }}
-          transition={{ duration: 0.16 }}
+          transition={{ duration: dialogFade }}
         >
           <div className={styles['head']}>
             <h2 className={styles['title']} id={titleId}>

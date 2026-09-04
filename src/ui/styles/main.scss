@@ -19,3 +19,6 @@
 @use 'decks';
 @use 'builder';
 @use 'editor';
+
+// SPIKE (throwaway) — 3D board probe. Delete this line to revert. See _spike3d.scss.
+@use 'spike3d';

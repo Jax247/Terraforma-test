@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   activationReach,
   applyAction,
@@ -12,16 +12,20 @@ import {
   targetsNeeded,
   tileAt,
 } from '../engine';
-import type { Action, CardRequest, Coord, GameState, NameResolver, PlayerId, SpellCardDef, SpellEffectLine } from '../engine';
+import type { Action, BattleReport, CardRequest, Coord, GameState, NameResolver, PlayerId, SpellCardDef, SpellEffectLine } from '../engine';
 import { sanitize } from '../ai';
 import { Button } from './components/Button';
 import { Panel } from './components/Panel';
 import { CardDetailBody } from './CardDetail';
 import type { DetailSubject } from './CardDetail';
 import { describeExperiments, liveExperiments } from './experiments';
+import { keyLabel } from './keybinds';
+import type { Keybinds } from './keybinds';
 import { Modal } from './Modal';
 import { ZoneModal } from './ZoneModal';
+import { BattlePopup } from './game/BattlePopup';
 import { Board } from './game/Board';
+import { buildTileMenus } from './game/tileMenus';
 import { Hand } from './game/Hand';
 import { FullLog, groupLogByTurn, LogPanel } from './game/LogPanel';
 import { LeaderPanel, StancePanel } from './game/SidePanels';
@@ -126,6 +130,8 @@ export function GameView({
   seat,
   onAction,
   boardName,
+  keybinds,
+  battlePopup,
 }: {
   game: GameState;
   names: NameResolver;
@@ -138,6 +144,10 @@ export function GameView({
   onAction?: (a: Action, next: GameState) => void;
   /** Which map this game is on. Worth showing when the picker rolled it for you. */
   boardName?: string;
+  /** Player-configurable board keys; see src/ui/keybinds.ts. */
+  keybinds: Keybinds;
+  /** Settings > Battle popup. Off resolves combat straight to the log. */
+  battlePopup: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null); // unit id
   const [targeting, setTargeting] = useState<Targeting | null>(null);
@@ -153,6 +163,33 @@ export function GameView({
   // Below xl the command rail is a drawer under the board, so the board owns the screen.
   const [drawerOpen, setDrawerOpen] = useState(true);
 
+  /**
+   * The fight currently being shown, CAPTURED rather than read live off `game`.
+   *
+   * `game.battles` belongs to the action that produced the current state, so deriving the popup
+   * from it means the next action takes it away — which at AI speed is a third of a second. Held
+   * here instead, so the panel owns its own few seconds however fast the game moves on.
+   *
+   * The effect keys on the array identity: `applyAction` builds a fresh one per action, so this
+   * fires once per fight and works the same for a hotseat move, an AI move, and an opponent's
+   * move arriving over the wire — all three reach this component as a new state.
+   */
+  const [shownBattles, setShownBattles] = useState<BattleReport[] | null>(null);
+  const seenBattles = useRef<BattleReport[] | null>(null);
+  useEffect(() => {
+    // Marked seen even while the setting is off, so switching it back on cannot replay a fight
+    // that has already been and gone.
+    const fresh = game.battles !== seenBattles.current;
+    seenBattles.current = game.battles;
+    // Turning it off takes down whatever is on screen now, rather than leaving one last panel
+    // to sit out its timer.
+    if (!battlePopup) {
+      setShownBattles(null);
+      return;
+    }
+    if (fresh && game.battles.length > 0) setShownBattles(game.battles);
+  }, [game.battles, battlePopup]);
+
   const legal = useMemo(() => legalActions(game), [game]);
   const active = game.active;
   // What this game is actually running, so a tweak can never be forgotten mid-playtest.
@@ -165,6 +202,10 @@ export function GameView({
   const myTurn = seat === undefined || active === seat;
   const ps = view.players[viewer];
   const leader = view.leaders[viewer];
+  // The leader UNIT on the board, not `leaders[viewer]` — that is the card
+  // definition and has no position. Guarded because a finished game may have
+  // lost it, and `leaderOf` throws rather than returning undefined.
+  const leaderUnit = Object.values(view.units).find((u) => u.isLeader && u.owner === viewer);
   // Online seat 1 sits at the far end (row 7), so rotate the board 180° — both
   // axes flip — to render it from their end, own side at the bottom. Hotseat and
   // seat 0 keep the canonical orientation (row 7 top, col 1 left).
@@ -397,6 +438,46 @@ export function GameView({
 
   const pendingBurn = game.pendingBurn?.player === viewer ? game.pendingBurn : undefined;
 
+  /**
+   * Back out of whatever is in flight — Escape on the board, and the only way out of a
+   * half-picked multi-tile spell that isn't clicking a tile and hoping it gets refused.
+   */
+  function cancel() {
+    setTargeting(null);
+    setSelected(null);
+    setError('');
+  }
+
+  /**
+   * The per-piece action menus the board hangs off its own tiles.
+   *
+   * Rebuilt every render rather than memoised: every callback below closes over `dispatch` and
+   * `setTargeting`, so a dep list that kept the map stable would keep STALE closures with it.
+   * The build is a couple of passes over the viewer's own pieces — cheaper than the target
+   * enumeration this render already does.
+   */
+  const tileMenus = buildTileMenus({
+    game,
+    view,
+    viewer,
+    legal,
+    myTurn,
+    blocked: game.winner !== undefined || game.phase === 'gameover' || pendingBurn !== undefined,
+    targeting: targeting !== null,
+    playable,
+    inspectUnit,
+    onInspect,
+    onDispatch: dispatch,
+    onAbility: () => beginActivation({ kind: 'ability' }, leader.ability.effects),
+    onFlip: (setId, effects) => beginActivation({ kind: 'flip', set: setId }, effects),
+    onMoveSet: (setId) => setTargeting({ kind: 'moveset', set: setId }),
+    onSummon: (card) => setTargeting({ kind: 'summon', card }),
+    onSetCard: (card, stance) => setTargeting({ kind: 'set', card, stance }),
+    onCast: (card, def) => beginActivation({ kind: 'cast', card }, def.effects),
+  });
+
+  // Prompts name the key that is actually bound, not the one that shipped as the default.
+  const cancelKey = keyLabel(keybinds.cancel);
   const prompt = pendingBurn
     ? `Hand over ${ps.hand.length - 1} cards — burn one to the void to make room for the new draw.`
     : targeting === null
@@ -404,9 +485,13 @@ export function GameView({
         ? selectedUnit?.stance === 'defense'
           ? 'This unit is defending — it can only switch back to attack stance.'
           : shotTargets.length > 0
-            ? 'Click an outlined tile to move / attack, or a ringed tile to shoot.'
-            : 'Click an outlined tile to move / attack / fuse.'
-        : ''
+            ? `Click an outlined tile to move / attack, or a ringed tile to shoot. ${cancelKey} to drop it.`
+            : `Click an outlined tile to move / attack / fuse. ${cancelKey} to drop it.`
+        : myTurn
+          // The only place the two new keys are spelled out. It sits in the idle prompt because
+          // that is the moment a player has nothing else to read and is looking for what to do.
+          ? `Pick a piece to move it — or open its own actions with ⋯, right-click, or ${keyLabel(keybinds.actions)}.`
+          : ''
       : cardPick
         // The card step runs first, so the tile prompts must not front-run it.
         ? cardPick.kind === 'graveyard'
@@ -417,14 +502,14 @@ export function GameView({
           // none (a Raise with the ring walled off, a ChosenEnemy on a board holding nothing but
           // leaders), and the hand offers `set` on a card the player cannot currently afford.
           // Deliberately does not guess which — it says what the board can show, which is nothing.
-          ? 'No legal tile for this — click any tile to cancel.'
+          ? `No legal tile for this — press ${cancelKey} to back out.`
           : targeting.kind === 'summon'
             ? 'Click an outlined tile to summon.'
             : targeting.kind === 'set'
               ? `Click an outlined tile to set face-down${targeting.stance === 'defense' ? ' in defense' : ''}.`
               : targeting.kind === 'moveset'
                 ? 'Click an outlined tile to move the face-down card (1 tile).'
-                : `Pick ${targeting.needed - targeting.picked.length} more target tile(s) from the outlined ones.`;
+                : `Pick ${targeting.needed - targeting.picked.length} more target tile(s) from the outlined ones. ${cancelKey} to cancel.`;
 
   const pickedTargets = targeting && 'picked' in targeting ? targeting.picked : [];
 
@@ -460,6 +545,10 @@ export function GameView({
       </div>
 
       <div className="board-col">
+        {shownBattles && (
+          <BattlePopup battles={shownBattles} viewer={viewer} onDone={() => setShownBattles(null)} />
+        )}
+
         <Board
           view={view}
           game={game}
@@ -472,24 +561,19 @@ export function GameView({
           pickedTargets={pickedTargets}
           availableTargets={availableTargets}
           onTile={clickTile}
+          menus={tileMenus}
+          keybinds={keybinds}
+          onCancel={cancel}
           onHover={setHovered}
           onFocusTile={setFocusedTile}
           onInspect={onInspect}
           inspectUnit={inspectUnit}
-        />
-
-        <Hand
-          view={view}
-          viewer={viewer}
-          myTurn={myTurn}
-          pendingBurn={pendingBurn !== undefined}
-          playable={playable}
-          onInspect={onInspect}
-          onHover={setHovered}
-          onBurn={(index) => dispatch({ t: 'BurnCard', index })}
-          onSummon={(card) => setTargeting({ kind: 'summon', card })}
-          onCast={(card, def) => beginActivation({ kind: 'cast', card }, (def as SpellCardDef).effects)}
-          onSet={(card, stance) => setTargeting({ kind: 'set', card, stance })}
+          focusOn={leaderUnit?.pos ?? null}
+          // Changes exactly once per turn that is MINE, so the board lands on my
+          // leader as the turn opens and never twitches back to it mid-turn.
+          // Null while it is the other player's (so hotseat does not hand the
+          // cursor to a leader whose turn it is not) and once the game is over.
+          focusKey={myTurn && game.winner === undefined ? `${active}:${ps.turnCount}` : null}
         />
 
         {/* Below xl the command rail folds into a drawer under the board. */}
@@ -507,6 +591,26 @@ export function GameView({
           </Button>
         </div>
       </div>
+
+      {/*
+        The hand is a sibling of the board column, not a child of it, so it gets
+        the FULL width of the layout instead of the board's middle track. Seven
+        cards cannot fit a ~560px column without overlapping each other by half a
+        card, which buries the name and stat plate at the foot of every card.
+      */}
+      <Hand
+        view={view}
+        viewer={viewer}
+        myTurn={myTurn}
+        pendingBurn={pendingBurn !== undefined}
+        playable={playable}
+        onInspect={onInspect}
+        onHover={setHovered}
+        onBurn={(index) => dispatch({ t: 'BurnCard', index })}
+        onSummon={(card) => setTargeting({ kind: 'summon', card })}
+        onCast={(card, def) => beginActivation({ kind: 'cast', card }, (def as SpellCardDef).effects)}
+        onSet={(card, stance) => setTargeting({ kind: 'set', card, stance })}
+      />
 
       <div className={`side${drawerOpen ? '' : ' side-collapsed'}`}>
         <StatusHud
@@ -534,23 +638,14 @@ export function GameView({
         )}
 
         {selectedUnit && !selectedUnit.isLeader && selectedUnit.owner === viewer && (
-          <StancePanel
-            game={game}
-            unit={selectedUnit}
-            actions={stanceActions}
-            myTurn={myTurn}
-            onDispatch={dispatch}
-          />
+          <StancePanel game={game} unit={selectedUnit} actions={stanceActions} />
         )}
 
         <LeaderPanel
           leader={leader}
           sp={ps.sp}
-          myTurn={myTurn}
           setSpells={selectedSetForFlip}
           cardDefs={view.cardDefs}
-          onActivate={() => beginActivation({ kind: 'ability' }, leader.ability.effects)}
-          onFlip={(setId, def) => beginActivation({ kind: 'flip', set: setId }, def.effects)}
           onInspect={onInspect}
         />
 

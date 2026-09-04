@@ -18,7 +18,9 @@ import { GameView } from './GameView';
 import { OnlineSetup } from './OnlineSetup';
 import { SetupScreen } from './SetupScreen';
 import { SettingsDialog } from './SettingsDialog';
-import { motionConfigProps, useMotionMode } from './motion';
+import { Spike3D } from './Spike3D';
+import type { Keybinds } from './keybinds';
+import { MotionScopeProvider, motionConfigProps, outrunsPresentation, useMotionMode } from './motion';
 import { useOnlineSession } from './online/useOnlineSession';
 import { isAiThinking, useAiDriver } from './useAiDriver';
 import { useStoredBoards, useStoredDecks, useStoredSettings } from './storage';
@@ -75,11 +77,7 @@ function AppShell() {
   const [customDecks, setCustomDecks] = useStoredDecks();
   const policiesRef = useRef<[Policy, Policy]>([makeGreedyPolicy(), makeGreedyPolicy()]);
 
-  // Animations. Resolves the ?motion param, navigator.webdriver, the saved setting
-  // and prefers-reduced-motion, then stamps data-motion on <html> (which is what
-  // zeroes the CSS duration tokens). See src/ui/motion.ts.
   const [settings, setSettings] = useStoredSettings();
-  const motionMode = useMotionMode(settings.motion);
 
   // --- Online play ---
   const inviteRef = useRef<string | undefined>(undefined);
@@ -117,6 +115,30 @@ function AppShell() {
     isOnlineRef,
   });
   const aiThinking = isAiThinking(game, controllers, online === null);
+
+  // Animations. Resolves the ?motion param, navigator.webdriver, the saved setting
+  // and prefers-reduced-motion, then stamps data-motion on <html> (which is what
+  // zeroes the CSS duration tokens). See src/ui/motion.ts.
+  const motionMode = useMotionMode(settings.motion);
+
+  /**
+   * True while an AI seat is mid-turn at a speed the UI cannot draw at — Fast or Instant,
+   * where the next action lands before the last one has finished being shown.
+   *
+   * Keyed on the seat that is ACTUALLY playing, not on the game as a whole: in a
+   * human-vs-AI match the player's own turn runs at human pace and should look like it,
+   * and only the AI's turn needs the board to stop pretending it can keep up. `aiThinking`
+   * already goes false at gameover, so the win screen animates normally too.
+   */
+  const outrunning = aiThinking && outrunsPresentation(aiSpeed);
+
+  /**
+   * The battle panel is information rather than decoration, so it survives `motion: off`
+   * — but not a turn that outruns it. Its dwell is 2.6s (see game/BattlePopup.tsx) against
+   * an action every few milliseconds on Instant, so it never comes down: it parks over the
+   * middle of the board for the whole match, and every fresh report restarts its entrance.
+   */
+  const showBattlePopup = settings.battlePopup && !outrunning;
 
   // Per-game resolver so tweaked custom cards resolve in the log/detail views.
   const names = useMemo(
@@ -169,92 +191,103 @@ function AppShell() {
     // One switch for every motion.* component in the app: `off` also forces
     // zero-duration transitions, so nothing animates under automation.
     <MotionConfig {...motionConfigProps(motionMode)}>
-      <a className="skip-link" href="#main">
-        Skip to content
-      </a>
+      {/* Chrome answers to the player's setting; anything chasing committed game state also
+          answers to whether the game is outrunning it. See src/ui/motion.ts. */}
+      <MotionScopeProvider value={{ ui: motionMode, game: outrunning ? 'off' : motionMode }}>
+        <a className="skip-link" href="#main">
+          Skip to content
+        </a>
 
-      <AppBar
-        online={
-          online && {
-            status: online.status,
-            code: online.code,
-            peerConnected: online.peerConnected,
-            playing: online.phase === 'playing',
+        <AppBar
+          online={
+            online && {
+              status: online.status,
+              code: online.code,
+              peerConnected: online.peerConnected,
+              playing: online.phase === 'playing',
+            }
           }
-        }
-        onLeaveOnline={() => session.leave()}
-        hotseat={
-          hotseatGame
-            ? {
-                controllers,
-                onToggleAi: (seat, ai) =>
-                  setControllers((prev) =>
-                    seat === 0 ? [ai ? 'ai' : 'human', prev[1]] : [prev[0], ai ? 'ai' : 'human'],
-                  ),
-                onNewGame: () => setGame(null),
-                aiThinking,
-                activeSeat: game.active,
-              }
-            : null
-        }
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+          onLeaveOnline={() => session.leave()}
+          hotseat={
+            hotseatGame
+              ? {
+                  controllers,
+                  onToggleAi: (seat, ai) =>
+                    setControllers((prev) =>
+                      seat === 0 ? [ai ? 'ai' : 'human', prev[1]] : [prev[0], ai ? 'ai' : 'human'],
+                    ),
+                  onNewGame: () => setGame(null),
+                  aiThinking,
+                  activeSeat: game.active,
+                }
+              : null
+          }
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
 
-      <main id="main">
-        <Routes>
-          <Route
-            path="/"
-            element={
-              game && online === null ? (
-                <GameView
+        <main id="main">
+          <Routes>
+            <Route
+              path="/"
+              element={
+                game && online === null ? (
+                  <GameView
+                    game={game}
+                    names={names}
+                    onUpdate={setGame}
+                    onInspect={setDetail}
+                    onNewGame={() => setGame(null)}
+                    boardName={boardName}
+                    keybinds={settings.keybinds}
+                    battlePopup={showBattlePopup}
+                  />
+                ) : (
+                  <SetupScreen
+                    onStart={startGame}
+                    onInspect={setDetail}
+                    customDecks={customDecks}
+                    customBoards={customBoards}
+                  />
+                )
+              }
+            />
+            <Route path="/decks" element={<DeckPage decks={DECKS} experimentalDecks={DEFENSE_DECKS} onInspect={setDetail} />} />
+            <Route path="/build" element={<DeckBuilder decks={customDecks} onSave={setCustomDecks} onInspect={setDetail} />} />
+            <Route path="/boards" element={<BoardEditor boards={customBoards} onSave={setCustomBoards} />} />
+            <Route
+              path="/online/*"
+              element={
+                <OnlineRoute
+                  session={session}
                   game={game}
                   names={names}
-                  onUpdate={setGame}
-                  onInspect={setDetail}
-                  onNewGame={() => setGame(null)}
-                  boardName={boardName}
-                />
-              ) : (
-                <SetupScreen
-                  onStart={startGame}
+                  setGame={setGame}
                   onInspect={setDetail}
                   customDecks={customDecks}
                   customBoards={customBoards}
+                  keybinds={settings.keybinds}
+                  battlePopup={showBattlePopup}
                 />
-              )
-            }
-          />
-          <Route path="/decks" element={<DeckPage decks={DECKS} experimentalDecks={DEFENSE_DECKS} onInspect={setDetail} />} />
-          <Route path="/build" element={<DeckBuilder decks={customDecks} onSave={setCustomDecks} onInspect={setDetail} />} />
-          <Route path="/boards" element={<BoardEditor boards={customBoards} onSave={setCustomBoards} />} />
-          <Route
-            path="/online/*"
-            element={
-              <OnlineRoute
-                session={session}
-                game={game}
-                names={names}
-                setGame={setGame}
-                onInspect={setDetail}
-                customDecks={customDecks}
-                customBoards={customBoards}
-              />
-            }
-          />
-          {/* Unknown path: fall back to the game screen rather than a blank page. */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+              }
+            />
+            {/* Unknown path: fall back to the game screen rather than a blank page. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
 
-      {detail && <CardDetailModal subject={detail} names={names} onClose={() => setDetail(null)} />}
-      {settingsOpen && (
-        <SettingsDialog
-          settings={settings}
-          onChange={setSettings}
-          resolved={motionMode}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
+        {/* SPIKE (throwaway): renders null unless the URL carries ?spike3d. */}
+        <Spike3D />
+
+        {detail && <CardDetailModal subject={detail} names={names} onClose={() => setDetail(null)} />}
+        {settingsOpen && (
+          <SettingsDialog
+            settings={settings}
+            onChange={setSettings}
+            resolved={motionMode}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
+      </MotionScopeProvider>
     </MotionConfig>
   );
 }
@@ -271,6 +304,8 @@ function OnlineRoute({
   onInspect,
   customDecks,
   customBoards,
+  keybinds,
+  battlePopup,
 }: {
   session: ReturnType<typeof useOnlineSession>;
   game: GameState | null;
@@ -279,6 +314,8 @@ function OnlineRoute({
   onInspect: (d: DetailSubject) => void;
   customDecks: ReturnType<typeof useStoredDecks>[0];
   customBoards: ReturnType<typeof useStoredBoards>[0];
+  keybinds: Keybinds;
+  battlePopup: boolean;
 }) {
   const { code } = useParams();
   const { online, begin } = session;
@@ -303,6 +340,8 @@ function OnlineRoute({
         onNewGame={() => session.leave()}
         seat={online.seat}
         onAction={session.sendAction}
+        keybinds={keybinds}
+        battlePopup={battlePopup}
       />
     );
   }

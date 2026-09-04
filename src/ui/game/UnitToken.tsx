@@ -7,6 +7,7 @@ import type { GameState, Unit } from '../../engine';
 import { isDisarmed, isSnared, isStunned, isSuppressed } from '../../engine/status';
 import { CardArtImage, typeAccent } from '../components/CardFrame';
 import { Icon } from '../components/Icon';
+import { useGameMotion } from '../motion';
 import type { IconName } from '../components/Icon';
 
 /**
@@ -42,6 +43,20 @@ export function UnitToken({
   onInspect: () => void;
 }) {
   const sick = isSick(unit);
+  /**
+   * Whether the token TWEENS to its new tile or simply appears there.
+   *
+   * The props below are dropped rather than the animation being disabled through
+   * <MotionConfig> or a zero duration, because neither of those reaches framer's layout
+   * projection — and a zeroed duration is actively worse, leaving the measured delta
+   * stuck on the element as an inline transform with nothing left to clear it. See
+   * useGameMotion.
+   *
+   * `full` and not `!== 'off'`: a 156px flight across the board is exactly the kind of
+   * large-area movement `prefers-reduced-motion` is asking us not to make. Projection
+   * ignores framer's own `reducedMotion` switch, so honouring it has to happen here.
+   */
+  const travels = useGameMotion() === 'full';
   // Purely decorative: raises the token over the ones it flies past. Nothing waits
   // on it — if the animation never fires, the class simply never turns on.
   const [moving, setMoving] = useState(false);
@@ -74,12 +89,12 @@ export function UnitToken({
       // ⚠ Keep this element free of transforms: the quarter-turn for defense stance
       // lives on `.unit-card` INSIDE it. Layout projection measures this box, and a
       // rotation on the measured element makes that measurement meaningless.
-      layout
-      layoutId={unit.id}
+      layout={travels}
+      layoutId={travels ? unit.id : undefined}
       transition={{ type: 'spring', stiffness: 400, damping: 34, mass: 0.7 }}
       onLayoutAnimationStart={() => setMoving(true)}
       onLayoutAnimationComplete={() => setMoving(false)}
-      className={clsx('unit', `unit-p${unit.owner}`, moving && 'unit-moving', sick && 'unit-sick', unit.isLeader && 'unit-leader')}
+      className={clsx('unit', `unit-p${unit.owner}`, travels && moving && 'unit-moving', sick && 'unit-sick', unit.isLeader && 'unit-leader')}
       aria-label={summary}
     >
       {/*
