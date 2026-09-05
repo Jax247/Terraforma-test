@@ -70,9 +70,21 @@ export interface AppBarProps {
     activeSeat: 0 | 1;
   } | null;
   onOpenSettings: () => void;
+  /** Undefined only while the first /api/me is in flight, so the chip never flickers. */
+  accountName?: string;
+  accountGuest: boolean;
+  onOpenAccount: () => void;
 }
 
-export function AppBar({ online, onLeaveOnline, hotseat, onOpenSettings }: AppBarProps) {
+export function AppBar({
+  online,
+  onLeaveOnline,
+  hotseat,
+  onOpenSettings,
+  accountName,
+  accountGuest,
+  onOpenAccount,
+}: AppBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Escape closes the sheet, and body scroll is locked while it is open.
@@ -152,6 +164,22 @@ export function AppBar({ online, onLeaveOnline, hotseat, onOpenSettings }: AppBa
               </>
             )}
           </div>
+
+          {accountName && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onOpenAccount}
+              className={clsx(styles['account'], accountGuest && styles['accountGuest'])}
+              // A guest is a real, working identity here — the label says what an account
+              // would add rather than implying the player is not signed in to anything.
+              aria-label={accountGuest ? `Playing as ${accountName}. Keep your decks` : `Account: ${accountName}`}
+              title={accountGuest ? 'Playing as a guest — add an account to keep your decks' : accountName}
+            >
+              <Icon name={accountGuest ? 'account' : 'accountClaimed'} size={14} />
+              <span className={styles['accountName']}>{accountName}</span>
+            </Button>
+          )}
 
           <Button size="sm" variant="ghost" onClick={onOpenSettings} aria-label="Settings">
             <Icon name="settings" size={16} />

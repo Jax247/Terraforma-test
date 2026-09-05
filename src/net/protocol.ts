@@ -21,6 +21,8 @@ export interface LobbySeat {
   connected: boolean;
   ready: boolean;
   deck?: DeckDef;
+  /** Display name of the account holding the seat, once it has one. */
+  name?: string;
 }
 
 export interface LobbyState {

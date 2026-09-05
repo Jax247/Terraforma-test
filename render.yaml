@@ -19,5 +19,9 @@ services:
       # generateValue creates it once and keeps it.
       - key: SEAT_SECRET
         generateValue: true
+      # Also stable across deploys: sessions are signed cookies, so rotating this signs
+      # everyone out. generateValue creates it once and keeps it.
+      - key: SESSION_SECRET
+        generateValue: true
       - key: NODE_ENV
         value: production

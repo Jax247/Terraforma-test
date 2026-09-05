@@ -251,3 +251,28 @@
     padding: var(--space-3);
   }
 }
+
+// Account chip. Sits beside Settings and stays quiet: a guest is a working identity, not an
+// error state, so this never turns into a call to action.
+.account {
+  gap: var(--space-1);
+  max-width: 12rem;
+}
+
+.accountName {
+  @include truncate;
+  font-size: var(--text-xs);
+}
+
+// A guest reads dimmer than a claimed account — enough to notice the difference, not enough
+// to nag about it.
+.accountGuest .accountName {
+  color: var(--ink-muted);
+}
+
+@media (max-width: 40rem) {
+  // On a narrow bar the name is the first thing worth losing; the icon still opens the dialog.
+  .accountName {
+    display: none;
+  }
+}

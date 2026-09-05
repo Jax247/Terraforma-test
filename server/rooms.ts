@@ -12,7 +12,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Action, Board, DeckDef } from '../src/engine/index.ts';
 import type { ClientMsg, ErrorCode, LobbyState, ServerMsg, StartPayload } from '../src/net/protocol.ts';
-import { MemoryRoomStore, type RoomSnapshot, type RoomStore } from './store.ts';
+import { MemoryRoomStore, type RoomSnapshot, type RoomStore, type SeatUser } from './store.ts';
 
 /** Minimal connection adapter so tests can drive rooms without sockets. */
 export interface Conn {
@@ -26,6 +26,8 @@ interface SeatState {
   conn: Conn | null;
   ready: boolean;
   deck?: DeckDef;
+  /** The account holding this seat, when the connection arrived with one. */
+  user?: SeatUser;
 }
 
 interface Room {
@@ -120,8 +122,10 @@ export class RoomManager {
         phase: room.phase,
         // Everyone is legitimately disconnected after a restart; they arrive via rejoin.
         seats: [
-          { conn: null, ready: room.seats[0].ready, deck: room.seats[0].deck },
-          room.seats[1] ? { conn: null, ready: room.seats[1].ready, deck: room.seats[1].deck } : null,
+          { conn: null, ready: room.seats[0].ready, deck: room.seats[0].deck, user: room.seats[0].user },
+          room.seats[1]
+            ? { conn: null, ready: room.seats[1].ready, deck: room.seats[1].deck, user: room.seats[1].user }
+            : null,
         ],
         board: room.board,
         boardName: room.boardName,
@@ -135,7 +139,11 @@ export class RoomManager {
 
   /** The persistable projection of a live room — drops `conn`, which cannot outlive a process. */
   private snapshot(room: Room): RoomSnapshot {
-    const seat = (s: SeatState): { ready: boolean; deck?: DeckDef } => ({ ready: s.ready, deck: s.deck });
+    const seat = (s: SeatState): { ready: boolean; deck?: DeckDef; user?: SeatUser } => ({
+      ready: s.ready,
+      deck: s.deck,
+      user: s.user,
+    });
     return {
       code: room.code,
       phase: room.phase,
@@ -169,7 +177,7 @@ export class RoomManager {
   }
 
   /** Open a new room; the creator holds seat 0 (host). Sends `created`. */
-  create(conn: Conn): { code: string; seat: 0 } {
+  create(conn: Conn, user?: SeatUser): { code: string; seat: 0 } {
     let code: string;
     do {
       code = Array.from(
@@ -180,7 +188,7 @@ export class RoomManager {
     const room: Room = {
       code,
       phase: 'lobby',
-      seats: [{ conn, ready: false }, null],
+      seats: [{ conn, ready: false, user }, null],
       actions: [],
       lastActivity: Date.now(),
     };
@@ -191,7 +199,7 @@ export class RoomManager {
   }
 
   /** Take seat 1 in an open room. Sends `joined` + a lobby broadcast, or an error. */
-  join(code: string, conn: Conn): { code: string; seat: 1 } | null {
+  join(code: string, conn: Conn, user?: SeatUser): { code: string; seat: 1 } | null {
     const room = this.rooms.get(code);
     if (!room) {
       this.fail(conn, 'room-not-found', `No room with code ${code}.`);
@@ -201,7 +209,7 @@ export class RoomManager {
       this.fail(conn, 'room-full', 'That room already has two players.');
       return null;
     }
-    room.seats[1] = { conn, ready: false };
+    room.seats[1] = { conn, ready: false, user };
     room.lastActivity = Date.now();
     this.persist(room);
     conn.send({ t: 'joined', code, seat: 1, token: seatToken(code, 1) });
@@ -210,7 +218,7 @@ export class RoomManager {
   }
 
   /** Reclaim a seat after a refresh/reconnect. Sends a full `sync`, or an error. */
-  rejoin(code: string, seat: Seat, token: string, conn: Conn): { code: string; seat: Seat } | null {
+  rejoin(code: string, seat: Seat, token: string, conn: Conn, user?: SeatUser): { code: string; seat: Seat } | null {
     const room = this.rooms.get(code);
     if (!room) {
       this.fail(conn, 'room-not-found', `No room with code ${code}.`);
@@ -223,6 +231,9 @@ export class RoomManager {
     }
     ss.conn?.close(); // replace a zombie connection
     ss.conn = conn;
+    // Refresh on every rejoin: a rehydrated room carries the name from before the restart,
+    // and the returning player's cookie is the newer source of truth.
+    if (user) ss.user = user;
     room.lastActivity = Date.now();
     this.persist(room);
     this.sendSync(room, conn);
@@ -378,6 +389,7 @@ export class RoomManager {
       connected: !!s?.conn,
       ready: !!s?.ready,
       deck: s?.deck,
+      name: s?.user?.name,
     });
     return {
       code: room.code,

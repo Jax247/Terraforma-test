@@ -26,10 +26,17 @@
 import type { Action, Board, DeckDef } from '../src/engine/index.ts';
 import type { StartPayload } from '../src/net/protocol.ts';
 
+/** Who is sitting in a seat. Denormalised so a rehydrated lobby renders without a join. */
+export interface SeatUser {
+  id: string;
+  name: string;
+}
+
 /** A seat as it survives a restart. Deliberately without `conn` or `token`. */
 export interface PersistedSeat {
   ready: boolean;
   deck?: DeckDef;
+  user?: SeatUser;
 }
 
 /**

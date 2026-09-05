@@ -18,6 +18,8 @@ import { GameView } from './GameView';
 import { OnlineSetup } from './OnlineSetup';
 import { SetupScreen } from './SetupScreen';
 import { SettingsDialog } from './SettingsDialog';
+import { AccountDialog } from './AccountDialog';
+import { useAuth } from './online/useAuth';
 import { Spike3D } from './Spike3D';
 import type { Keybinds } from './keybinds';
 import { MotionScopeProvider, motionConfigProps, outrunsPresentation, useMotionMode } from './motion';
@@ -69,6 +71,10 @@ function AppShell() {
   const [game, setGame] = useState<GameState | null>(null);
   const [detail, setDetail] = useState<DetailSubject | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  // Guest-first: this resolves to a real identity on first load with no signup, so there is
+  // never a moment where the app is unusable pending a login.
+  const auth = useAuth();
   const [controllers, setControllers] = useState<[Controller, Controller]>(['human', 'human']);
   const [aiSpeed, setAiSpeed] = useState(350);
   // Which map this game is on — the random board modes make this worth showing.
@@ -223,6 +229,9 @@ function AppShell() {
               : null
           }
           onOpenSettings={() => setSettingsOpen(true)}
+          accountName={auth.loading ? undefined : auth.me?.displayName}
+          accountGuest={auth.me?.guest ?? true}
+          onOpenAccount={() => setAccountOpen(true)}
         />
 
         <main id="main">
@@ -279,6 +288,7 @@ function AppShell() {
         <Spike3D />
 
         {detail && <CardDetailModal subject={detail} names={names} onClose={() => setDetail(null)} />}
+        {accountOpen && <AccountDialog auth={auth} onClose={() => setAccountOpen(false)} />}
         {settingsOpen && (
           <SettingsDialog
             settings={settings}

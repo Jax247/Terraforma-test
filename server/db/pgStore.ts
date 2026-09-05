@@ -14,12 +14,9 @@
  *   the WebSocket handler: a dead database must degrade this server to its pre-Phase-1
  *   in-memory behaviour, not take live games down with it.
  */
-import pg from 'pg';
+import type pg from 'pg';
 import type { Action } from '../../src/engine/index.ts';
-import type { RoomSnapshot, RoomStore } from '../store.ts';
-import { migrate } from './migrate.ts';
-
-const { Pool } = pg;
+import type { RoomSnapshot, RoomStore, SeatUser } from '../store.ts';
 
 const RETRY_DELAYS_MS = [250, 1000, 4000];
 
@@ -43,9 +40,11 @@ interface RoomRow {
   config: unknown;
   seat0_ready: boolean;
   seat0_deck: unknown;
+  seat0_user: unknown;
   seat1_taken: boolean;
   seat1_ready: boolean;
   seat1_deck: unknown;
+  seat1_user: unknown;
   last_activity: Date;
 }
 
@@ -102,19 +101,21 @@ export class PgRoomStore implements RoomStore {
       await this.withRetry(() =>
         this.pool.query(
           `insert into rooms (code, phase, board, board_name, config,
-                              seat0_ready, seat0_deck, seat1_taken, seat1_ready, seat1_deck, last_activity)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,to_timestamp($11/1000.0))
+                              seat0_ready, seat0_deck, seat0_user,
+                              seat1_taken, seat1_ready, seat1_deck, seat1_user, last_activity)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,to_timestamp($13/1000.0))
            on conflict (code) do update set
              phase = excluded.phase, board = excluded.board, board_name = excluded.board_name,
              config = excluded.config, seat0_ready = excluded.seat0_ready,
-             seat0_deck = excluded.seat0_deck, seat1_taken = excluded.seat1_taken,
-             seat1_ready = excluded.seat1_ready, seat1_deck = excluded.seat1_deck,
+             seat0_deck = excluded.seat0_deck, seat0_user = excluded.seat0_user,
+             seat1_taken = excluded.seat1_taken, seat1_ready = excluded.seat1_ready,
+             seat1_deck = excluded.seat1_deck, seat1_user = excluded.seat1_user,
              last_activity = excluded.last_activity`,
           [
             r.code, r.phase,
             json(r.board), r.boardName ?? null, json(r.config),
-            r.seats[0].ready, json(r.seats[0].deck),
-            r.seats[1] !== null, r.seats[1]?.ready ?? false, json(r.seats[1]?.deck),
+            r.seats[0].ready, json(r.seats[0].deck), json(r.seats[0].user),
+            r.seats[1] !== null, r.seats[1]?.ready ?? false, json(r.seats[1]?.deck), json(r.seats[1]?.user),
             r.lastActivity,
           ],
         ),
@@ -178,9 +179,17 @@ export class PgRoomStore implements RoomStore {
         boardName: r.board_name ?? undefined,
         config: (r.config ?? undefined) as RoomSnapshot['config'],
         seats: [
-          { ready: r.seat0_ready, deck: (r.seat0_deck ?? undefined) as RoomSnapshot['seats'][0]['deck'] },
+          {
+            ready: r.seat0_ready,
+            deck: (r.seat0_deck ?? undefined) as RoomSnapshot['seats'][0]['deck'],
+            user: (r.seat0_user ?? undefined) as SeatUser | undefined,
+          },
           r.seat1_taken
-            ? { ready: r.seat1_ready, deck: (r.seat1_deck ?? undefined) as RoomSnapshot['seats'][0]['deck'] }
+            ? {
+                ready: r.seat1_ready,
+                deck: (r.seat1_deck ?? undefined) as RoomSnapshot['seats'][0]['deck'],
+                user: (r.seat1_user ?? undefined) as SeatUser | undefined,
+              }
             : null,
         ],
         lastActivity: r.last_activity.getTime(),
@@ -188,18 +197,4 @@ export class PgRoomStore implements RoomStore {
       actions: byCode.get(r.code) ?? [],
     }));
   }
-}
-
-/** Build the pool, run migrations, and hand back a ready store. */
-export async function createPgStore(connectionString: string): Promise<PgRoomStore> {
-  const pool = new Pool({
-    connectionString,
-    // One process, turn-based traffic: a large pool would only hold idle connections against
-    // the small instance limits these platforms ship with.
-    max: 4,
-    // Managed Postgres on Render/Railway presents a cert the container has no CA for.
-    ssl: connectionString.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
-  });
-  await migrate(pool);
-  return new PgRoomStore(pool);
 }

@@ -8,14 +8,27 @@
  * ./scripts/register-ts-ext.mjs` flag in the `server`/`start` scripts is what lets this
  * resolve the engine's extensionless relative imports; without it, `./engine.ts` fails.
  */
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg } from '../src/net/protocol.ts';
 import { RoomManager, type Conn } from './rooms.ts';
-import { MemoryRoomStore, type RoomStore } from './store.ts';
+import { MemoryRoomStore, type RoomStore, type SeatUser } from './store.ts';
+import { MemoryUserStore, type User, type UserStore } from './users.ts';
+import {
+  clearCookie,
+  hashPassword,
+  isGuest,
+  mintSession,
+  normalizeEmail,
+  peekUser,
+  resolveUser,
+  sessionCookie,
+  validateCredentials,
+  verifyPassword,
+} from './auth.ts';
 import { changedRules } from './engine.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -82,6 +95,111 @@ function cacheControl(pathname: string): string {
   return pathname === '/' || pathname.endsWith('.html') ? 'no-cache' : STATIC;
 }
 
+// --- Account API ------------------------------------------------------------------------
+//
+// Guest-first: /api/me mints an account for anyone who asks, so the client has an identity
+// before it ever opens a socket and an invite link stays playable with no signup. Claiming
+// attaches credentials to that same row rather than creating a second one.
+
+/** The client's view of who it is. Never carries the password hash. */
+interface MeResponse {
+  id: string;
+  displayName: string;
+  email: string | null;
+  guest: boolean;
+}
+
+const meOf = (u: User): MeResponse => ({
+  id: u.id,
+  displayName: u.displayName,
+  email: u.email,
+  guest: isGuest(u),
+});
+
+function sendJson(res: ServerResponse, status: number, body: unknown, setCookie?: string): void {
+  const headers: Record<string, string | string[]> = {
+    'content-type': 'application/json',
+    // An identity response must never be cached — by the browser or by anything in front.
+    'cache-control': 'no-store',
+    ...SECURITY_HEADERS,
+  };
+  if (setCookie) headers['set-cookie'] = setCookie;
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(body));
+}
+
+/** Read a small JSON body. Bounded, because this is reachable by anyone. */
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > 4096) return null;
+    chunks.push(chunk as Buffer);
+  }
+  try {
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+async function handleApi(
+  pathname: string,
+  method: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (pathname === '/api/me' && method === 'GET') {
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    sendJson(res, 200, meOf(user), setCookie);
+    return;
+  }
+
+  if (pathname === '/api/auth/claim' && method === 'POST') {
+    // Claim converts the CURRENT account, so everything the guest already did comes with it.
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    const body = await readJson(req);
+    if (!body) return sendJson(res, 400, { error: 'Malformed request.' }, setCookie);
+    const email = normalizeEmail(str(body['email']));
+    const password = str(body['password']);
+    const invalid = validateCredentials(email, password);
+    if (invalid) return sendJson(res, 400, { error: invalid }, setCookie);
+    if (!isGuest(user)) return sendJson(res, 409, { error: 'This account already has an email.' }, setCookie);
+    if (await users.byEmail(email)) {
+      return sendJson(res, 409, { error: 'That email is already registered. Log in instead.' }, setCookie);
+    }
+    const displayName = str(body['displayName']).trim().slice(0, 40) || user.displayName;
+    await users.update(user.id, { email, passwordHash: await hashPassword(password), displayName });
+    sendJson(res, 200, { ...meOf(user), email, displayName, guest: false }, setCookie);
+    return;
+  }
+
+  if (pathname === '/api/auth/login' && method === 'POST') {
+    const body = await readJson(req);
+    if (!body) return sendJson(res, 400, { error: 'Malformed request.' });
+    const email = normalizeEmail(str(body['email']));
+    const found = await users.byEmail(email);
+    const ok = found ? await verifyPassword(str(body['password']), found.passwordHash) : false;
+    // One message for both "no such account" and "wrong password", so this cannot be used to
+    // enumerate who has registered.
+    if (!found || !ok) return sendJson(res, 401, { error: 'Email or password is incorrect.' });
+    sendJson(res, 200, meOf(found), sessionCookie(mintSession(found.id), 180 * 24 * 60 * 60 * 1000));
+    return;
+  }
+
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    // Drops the cookie; the next /api/me hands out a fresh guest.
+    sendJson(res, 200, { ok: true }, clearCookie());
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not found.' });
+}
+
 const httpServer = createServer(async (req, res) => {
   const method = req.method ?? 'GET';
   try {
@@ -99,6 +217,11 @@ const httpServer = createServer(async (req, res) => {
           uptime: Math.round(process.uptime()),
         }),
       );
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/')) {
+      await handleApi(url.pathname, method, req, res);
       return;
     }
 
@@ -157,13 +280,15 @@ const httpServer = createServer(async (req, res) => {
 });
 
 /**
- * No DATABASE_URL means in-memory rooms — exactly the pre-Phase-1 behaviour, and what keeps
- * `npm run server` zero-config for local play. The Postgres store is loaded dynamically so a
- * dev machine never has to resolve `pg` at all.
+ * No DATABASE_URL means in-memory rooms and accounts — exactly the pre-Phase-1 behaviour, and
+ * what keeps `npm run server` zero-config for local play. The Postgres stores are loaded
+ * dynamically so a dev machine never has to resolve `pg` at all.
  */
-const store: RoomStore = process.env.DATABASE_URL
-  ? await (await import('./db/pgStore.ts')).createPgStore(process.env.DATABASE_URL)
-  : new MemoryRoomStore();
+const stores = process.env.DATABASE_URL
+  ? await (await import('./db/index.ts')).createPgStores(process.env.DATABASE_URL)
+  : { rooms: new MemoryRoomStore(), users: new MemoryUserStore() };
+const store: RoomStore = stores.rooms;
+const users: UserStore = stores.users;
 
 const manager = new RoomManager(store);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1_000_000 });
@@ -218,6 +343,7 @@ function originAllowed(origin: string | undefined, host: string | undefined): bo
 }
 
 httpServer.on('upgrade', (req, socket, head) => {
+  void (async () => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   if (url.pathname !== '/ws') {
     socket.destroy();
@@ -235,7 +361,12 @@ httpServer.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req, ip));
+  // peek, never resolve: the upgrade must not mint accounts. A player who has not called
+  // /api/me yet simply seats anonymously, which is exactly the pre-Phase-2 behaviour.
+  const user = await peekUser(users, req.headers.cookie);
+  const seatUser = user ? { id: user.id, name: user.displayName } : undefined;
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req, ip, seatUser));
+  })();
 });
 
 interface Session {
@@ -243,7 +374,7 @@ interface Session {
   seat: 0 | 1;
 }
 
-wss.on('connection', (ws: WebSocket & { isAlive?: boolean }, _req: unknown, ip: string) => {
+wss.on('connection', (ws: WebSocket & { isAlive?: boolean }, _req: unknown, ip: string, user?: SeatUser) => {
   let session: Session | null = null;
   ws.isAlive = true;
   ws.on('pong', () => (ws.isAlive = true));
@@ -270,11 +401,11 @@ wss.on('connection', (ws: WebSocket & { isAlive?: boolean }, _req: unknown, ip: 
         conn.send({ t: 'error', code: 'bad-msg', message: 'Too many rooms opened. Try again later.' });
         return;
       }
-      session = manager.create(conn);
+      session = manager.create(conn, user);
     } else if (msg.t === 'join') {
-      session = manager.join(msg.code.toUpperCase(), conn) ?? session;
+      session = manager.join(msg.code.toUpperCase(), conn, user) ?? session;
     } else if (msg.t === 'rejoin') {
-      session = manager.rejoin(msg.code.toUpperCase(), msg.seat, msg.token, conn) ?? session;
+      session = manager.rejoin(msg.code.toUpperCase(), msg.seat, msg.token, conn, user) ?? session;
     } else if (session) {
       manager.handle(session.code, session.seat, msg);
     } else {
