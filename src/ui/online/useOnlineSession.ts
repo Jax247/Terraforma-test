@@ -13,7 +13,6 @@ import {
   DECK_TOKENS,
   initGame,
   makeArenaBoard,
-  shuffled,
 } from '../../engine';
 import type { Action, Board, DeckDef, GameState, PlayerConfig, PlayerId } from '../../engine';
 import { NetClient } from '../../net/client';
@@ -23,9 +22,6 @@ import type { ClientMsg, LobbyState, ServerMsg, StartPayload } from '../../net/p
 import { resetExperiments } from '../experiments';
 import { clearOnlineSession, loadOnlineSession, loadOnlineSetup, saveOnlineSession } from '../storage';
 import type { StoredBoard } from '../storage';
-
-/** Live games shuffle off Math.random; the headless harness seeds it instead (see engine/rng.ts). */
-const shuffle = <T,>(xs: T[]): T[] => shuffled(xs, Math.random);
 
 export type OnlinePhase = 'idle' | 'connecting' | 'lobby' | 'playing' | 'desync';
 
@@ -206,13 +202,11 @@ export function useOnlineSession({
     netRef.current?.send({ t: 'action', seq, action: a, hash: stateFingerprint(next) });
   }
 
-  /** Host only: fix both draw orders here so the two clients build identical games. */
+  /** Host only. The server shuffles and returns both orders in the start payload. */
   function hostStart() {
     const lobby = onlineRef.current?.lobby;
-    const d0 = lobby?.seats[0].deck;
-    const d1 = lobby?.seats[1].deck;
-    if (!d0 || !d1) return;
-    netRef.current?.send({ t: 'start', orders: [shuffle(d0.list), shuffle(d1.list)] });
+    if (!lobby?.seats[0].deck || !lobby.seats[1].deck) return;
+    netRef.current?.send({ t: 'start' });
   }
 
   handlerRef.current = (m: ServerMsg) => {
@@ -258,7 +252,12 @@ export function useOnlineSession({
       case 'error':
         if (m.code === 'bad-seq') return; // the server follows up with a sync
         if (m.code === 'room-not-found' || m.code === 'bad-token' || m.code === 'room-full') {
-          // We can't be in that room: back to the entry screen.
+          // We can't be in that room: back to the entry screen. Tear the socket down as well
+          // as the UI state — leaving it up keeps a client that still believes it holds a
+          // seat, which then re-sends `rejoin` on every reconnect and loops on this very
+          // error. The entry screen has no Leave button, so the loop is unescapable.
+          netRef.current?.close();
+          netRef.current = null;
           clearOnlineSession();
           setGame(null);
           setOnline((o) => o && { ...freshOnline(o.initialCode, m.message) });

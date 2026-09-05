@@ -18,12 +18,16 @@ import { GameView } from './GameView';
 import { OnlineSetup } from './OnlineSetup';
 import { SetupScreen } from './SetupScreen';
 import { SettingsDialog } from './SettingsDialog';
+import { AccountDialog } from './AccountDialog';
+import { useAuth } from './online/useAuth';
+import { useContent } from './useContent';
 import { Spike3D } from './Spike3D';
 import type { Keybinds } from './keybinds';
 import { MotionScopeProvider, motionConfigProps, outrunsPresentation, useMotionMode } from './motion';
 import { useOnlineSession } from './online/useOnlineSession';
 import { isAiThinking, useAiDriver } from './useAiDriver';
-import { useStoredBoards, useStoredDecks, useStoredSettings } from './storage';
+import { useStoredSettings } from './storage';
+import type { StoredBoard, StoredDeck } from './storage';
 import type { Controller } from './storage';
 
 /** Live games shuffle off Math.random; the headless harness seeds it instead (see engine/rng.ts). */
@@ -41,6 +45,42 @@ function newGame(a: DeckDef, b: DeckDef, board: Board): GameState {
       { leader: b.leader, deck: shuffle(b.list), fusionPool: [...b.fusionPool] },
     ],
   });
+}
+
+/**
+ * Offered once, when an account is empty but the browser still holds decks from before
+ * accounts existed. Phrased as a question rather than done automatically: importing writes to
+ * an account that might already be shared with another device, and the local copy is left in
+ * place either way so nothing is destroyed by choosing wrong.
+ */
+function ContentImportBanner({
+  importable,
+  onImport,
+  onDismiss,
+}: {
+  importable: { decks: number; boards: number };
+  onImport: () => void;
+  onDismiss: () => void;
+}) {
+  const bits = [
+    importable.decks && `${importable.decks} deck${importable.decks === 1 ? '' : 's'}`,
+    importable.boards && `${importable.boards} board${importable.boards === 1 ? '' : 's'}`,
+  ].filter(Boolean);
+  return (
+    <div className="content-import" role="status">
+      <span>
+        This browser has {bits.join(' and ')} saved from before you had an account. Copy{' '}
+        {bits.length > 1 ? 'them' : 'it'} to your account so {bits.length > 1 ? 'they' : 'it'} follow
+        {bits.length > 1 ? '' : 's'} you to other devices?
+      </span>
+      <button type="button" onClick={onImport}>
+        Copy to my account
+      </button>
+      <button type="button" onClick={onDismiss}>
+        Not now
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -69,12 +109,21 @@ function AppShell() {
   const [game, setGame] = useState<GameState | null>(null);
   const [detail, setDetail] = useState<DetailSubject | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  // Guest-first: this resolves to a real identity on first load with no signup, so there is
+  // never a moment where the app is unusable pending a login.
+  const auth = useAuth();
   const [controllers, setControllers] = useState<[Controller, Controller]>(['human', 'human']);
   const [aiSpeed, setAiSpeed] = useState(350);
   // Which map this game is on — the random board modes make this worth showing.
   const [boardName, setBoardName] = useState('Arena');
-  const [customBoards, setCustomBoards] = useStoredBoards();
-  const [customDecks, setCustomDecks] = useStoredDecks();
+  // Decks and boards now come from the account when there is an API behind the app, and from
+  // localStorage when there is not. Async either way — see src/ui/useContent.ts.
+  const content = useContent();
+  const customBoards = content.boards;
+  const setCustomBoards = content.setBoards;
+  const customDecks = content.decks;
+  const setCustomDecks = content.setDecks;
   const policiesRef = useRef<[Policy, Policy]>([makeGreedyPolicy(), makeGreedyPolicy()]);
 
   const [settings, setSettings] = useStoredSettings();
@@ -223,9 +272,20 @@ function AppShell() {
               : null
           }
           onOpenSettings={() => setSettingsOpen(true)}
+          accountName={auth.loading ? undefined : auth.me?.displayName}
+          accountGuest={auth.me?.guest ?? true}
+          onOpenAccount={() => setAccountOpen(true)}
         />
 
         <main id="main">
+          {/* Decks and boards arrive asynchronously now. Gating the routes rather than the
+              whole shell keeps the header stable, so this reads as content filling in rather
+              than the app booting twice. */}
+          {!content.ready ? (
+            <p className="content-loading" role="status">
+              Loading your decks…
+            </p>
+          ) : (
           <Routes>
             <Route
               path="/"
@@ -273,12 +333,30 @@ function AppShell() {
             {/* Unknown path: fall back to the game screen rather than a blank page. */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          )}
+
+          {content.importable && (
+            <ContentImportBanner
+              importable={content.importable}
+              onImport={content.importLocal}
+              onDismiss={content.dismissImport}
+            />
+          )}
+          {content.error && (
+            <p className="content-error" role="alert">
+              {content.error}{' '}
+              <button type="button" onClick={content.clearError}>
+                Dismiss
+              </button>
+            </p>
+          )}
         </main>
 
         {/* SPIKE (throwaway): renders null unless the URL carries ?spike3d. */}
         <Spike3D />
 
         {detail && <CardDetailModal subject={detail} names={names} onClose={() => setDetail(null)} />}
+        {accountOpen && <AccountDialog auth={auth} onClose={() => setAccountOpen(false)} />}
         {settingsOpen && (
           <SettingsDialog
             settings={settings}
@@ -312,12 +390,16 @@ function OnlineRoute({
   names: ReturnType<typeof defaultResolver>;
   setGame: (g: GameState | null) => void;
   onInspect: (d: DetailSubject) => void;
-  customDecks: ReturnType<typeof useStoredDecks>[0];
-  customBoards: ReturnType<typeof useStoredBoards>[0];
+  customDecks: StoredDeck[];
+  customBoards: StoredBoard[];
   keybinds: Keybinds;
   battlePopup: boolean;
 }) {
-  const { code } = useParams();
+  // The route is "/online/*", so react-router names the match "*" — destructuring `code` here
+  // always yielded undefined, and /online/ABCD only worked at all because readInviteCode()
+  // scrapes the pathname once at load. Read the splat the route actually provides.
+  const splat = useParams()['*'] ?? '';
+  const code = /^([A-Za-z0-9]+)/.exec(splat)?.[1]?.toUpperCase();
   const { online, begin } = session;
 
   useEffect(() => {

@@ -1,3 +1,8 @@
+databases:
+  - name: terraforma-db
+    databaseName: terraforma
+    plan: basic-256mb
+
 services:
   - type: web
     name: terraforma
@@ -5,9 +10,18 @@ services:
     plan: starter
     healthCheckPath: /health
     envVars:
-      # Stable across deploys so seat tokens survive a restart once Phase 1 lands.
-      # Without it the server falls back to a per-process secret and every rejoin fails.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: terraforma-db
+          property: connectionString
+      # MUST be stable across deploys. Seat tokens are HMACs over code:seat, so rotating this
+      # invalidates every live seat and returning players cannot rejoin their rooms.
+      # generateValue creates it once and keeps it.
       - key: SEAT_SECRET
+        generateValue: true
+      # Also stable across deploys: sessions are signed cookies, so rotating this signs
+      # everyone out. generateValue creates it once and keeps it.
+      - key: SESSION_SECRET
         generateValue: true
       - key: NODE_ENV
         value: production

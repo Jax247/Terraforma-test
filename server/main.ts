@@ -8,13 +8,28 @@
  * ./scripts/register-ts-ext.mjs` flag in the `server`/`start` scripts is what lets this
  * resolve the engine's extensionless relative imports; without it, `./engine.ts` fails.
  */
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg } from '../src/net/protocol.ts';
 import { RoomManager, type Conn } from './rooms.ts';
+import { MemoryRoomStore, type RoomStore, type SeatUser } from './store.ts';
+import { MemoryUserStore, type User, type UserStore } from './users.ts';
+import { isConflict, MemoryContentStore, type Collection, type ContentStore } from './content.ts';
+import {
+  clearCookie,
+  hashPassword,
+  isGuest,
+  mintSession,
+  normalizeEmail,
+  peekUser,
+  resolveUser,
+  sessionCookie,
+  validateCredentials,
+  verifyPassword,
+} from './auth.ts';
 import { changedRules } from './engine.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -68,9 +83,16 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 /**
- * Compressed bodies for text assets, filled lazily and never evicted. Bounded in practice:
- * dist/ holds a handful of JS/CSS/JSON files (~700 KB raw), and the image tree — the actual
- * bulk — is not compressible so never lands here.
+ * Compressed bodies for text assets, filled lazily.
+ *
+ * Keyed by path + mtime + size, NOT by path alone. A container image never changes under a
+ * running process, but a local `npm start` does: rebuild dist/ and a path-keyed cache keeps
+ * serving the previous index.html, which names bundles that no longer exist. The result is a
+ * blank page and a 404 for a hashed asset — a failure that looks like broken application code
+ * and is nothing of the sort.
+ *
+ * Bounded in practice: dist/ holds a handful of JS/CSS/JSON files (~700 KB raw), and the image
+ * tree — the actual bulk — is not compressible so never lands here.
  */
 const gzipCache = new Map<string, Uint8Array>();
 
@@ -81,6 +103,141 @@ function cacheControl(pathname: string): string {
   return pathname === '/' || pathname.endsWith('.html') ? 'no-cache' : STATIC;
 }
 
+// --- Account API ------------------------------------------------------------------------
+//
+// Guest-first: /api/me mints an account for anyone who asks, so the client has an identity
+// before it ever opens a socket and an invite link stays playable with no signup. Claiming
+// attaches credentials to that same row rather than creating a second one.
+
+/** The client's view of who it is. Never carries the password hash. */
+interface MeResponse {
+  id: string;
+  displayName: string;
+  email: string | null;
+  guest: boolean;
+}
+
+const meOf = (u: User): MeResponse => ({
+  id: u.id,
+  displayName: u.displayName,
+  email: u.email,
+  guest: isGuest(u),
+});
+
+function sendJson(res: ServerResponse, status: number, body: unknown, setCookie?: string): void {
+  const headers: Record<string, string | string[]> = {
+    'content-type': 'application/json',
+    // An identity response must never be cached — by the browser or by anything in front.
+    'cache-control': 'no-store',
+    ...SECURITY_HEADERS,
+  };
+  if (setCookie) headers['set-cookie'] = setCookie;
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(body));
+}
+
+/** Read a small JSON body. Bounded, because this is reachable by anyone. */
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > 4096) return null;
+    chunks.push(chunk as Buffer);
+  }
+  try {
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+async function handleApi(
+  pathname: string,
+  method: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (pathname === '/api/me' && method === 'GET') {
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    sendJson(res, 200, meOf(user), setCookie);
+    return;
+  }
+
+  if (pathname === '/api/auth/claim' && method === 'POST') {
+    // Claim converts the CURRENT account, so everything the guest already did comes with it.
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    const body = await readJson(req);
+    if (!body) return sendJson(res, 400, { error: 'Malformed request.' }, setCookie);
+    const email = normalizeEmail(str(body['email']));
+    const password = str(body['password']);
+    const invalid = validateCredentials(email, password);
+    if (invalid) return sendJson(res, 400, { error: invalid }, setCookie);
+    if (!isGuest(user)) return sendJson(res, 409, { error: 'This account already has an email.' }, setCookie);
+    if (await users.byEmail(email)) {
+      return sendJson(res, 409, { error: 'That email is already registered. Log in instead.' }, setCookie);
+    }
+    const displayName = str(body['displayName']).trim().slice(0, 40) || user.displayName;
+    await users.update(user.id, { email, passwordHash: await hashPassword(password), displayName });
+    sendJson(res, 200, { ...meOf(user), email, displayName, guest: false }, setCookie);
+    return;
+  }
+
+  if (pathname === '/api/auth/login' && method === 'POST') {
+    const body = await readJson(req);
+    if (!body) return sendJson(res, 400, { error: 'Malformed request.' });
+    const email = normalizeEmail(str(body['email']));
+    const found = await users.byEmail(email);
+    const ok = found ? await verifyPassword(str(body['password']), found.passwordHash) : false;
+    // One message for both "no such account" and "wrong password", so this cannot be used to
+    // enumerate who has registered.
+    if (!found || !ok) return sendJson(res, 401, { error: 'Email or password is incorrect.' });
+    sendJson(res, 200, meOf(found), sessionCookie(mintSession(found.id), 180 * 24 * 60 * 60 * 1000));
+    return;
+  }
+
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    // Drops the cookie; the next /api/me hands out a fresh guest.
+    sendJson(res, 200, { ok: true }, clearCookie());
+    return;
+  }
+
+  // --- Custom decks and boards -----------------------------------------------------------
+  //
+  // Collections are read and written whole, matching what the UI actually does. Every write
+  // carries the version it was based on: a whole-collection PUT is destructive, and without
+  // the check a device that loaded before a deck existed would delete it just by saving.
+
+  if (pathname === '/api/content' && method === 'GET') {
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    sendJson(res, 200, await content.get(user.id), setCookie);
+    return;
+  }
+
+  const putMatch = /^\/api\/content\/(decks|boards)$/.exec(pathname);
+  if (putMatch && method === 'PUT') {
+    const collection = putMatch[1] as Collection;
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    const body = await readJson(req);
+    if (!body) return sendJson(res, 400, { error: 'Malformed request.' }, setCookie);
+    const items = body['items'];
+    const version = body['version'];
+    if (!Array.isArray(items) || typeof version !== 'number') {
+      return sendJson(res, 400, { error: 'Expected { items: [], version: n }.' }, setCookie);
+    }
+    const result = await content.put(user.id, collection, items, version);
+    // 409 carries the current state, so the client can reconcile instead of guessing.
+    if (isConflict(result)) return sendJson(res, 409, result, setCookie);
+    sendJson(res, 200, result, setCookie);
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not found.' });
+}
+
 const httpServer = createServer(async (req, res) => {
   const method = req.method ?? 'GET';
   try {
@@ -88,7 +245,21 @@ const httpServer = createServer(async (req, res) => {
 
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({ ok: true, rooms: manager.size, uptime: Math.round(process.uptime()) }));
+      // `degraded` means writes are failing: games still play, but they stop being durable.
+      // Surfacing it here is what turns that from a silent regression into an alert.
+      res.end(
+        JSON.stringify({
+          ok: true,
+          rooms: manager.size,
+          durable: !store.degraded,
+          uptime: Math.round(process.uptime()),
+        }),
+      );
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/')) {
+      await handleApi(url.pathname, method, req, res);
       return;
     }
 
@@ -104,7 +275,8 @@ const httpServer = createServer(async (req, res) => {
     }
 
     let pathname = url.pathname;
-    if (!(await stat(file).catch(() => null))?.isFile()) {
+    let info = await stat(file).catch(() => null);
+    if (!info?.isFile()) {
       if (ASSET_PREFIXES.some((p) => pathname.startsWith(p))) {
         res.writeHead(404, { 'content-type': 'text/plain', 'cache-control': 'no-store' }).end('Not found');
         return;
@@ -112,6 +284,7 @@ const httpServer = createServer(async (req, res) => {
       // SPA fallback so /?room=CODE (and any client route) serves the app.
       file = join(DIST, 'index.html');
       pathname = '/index.html';
+      info = await stat(file).catch(() => null);
     }
 
     const ext = extname(file);
@@ -125,10 +298,11 @@ const httpServer = createServer(async (req, res) => {
     const wantsGzip = (req.headers['accept-encoding'] ?? '').includes('gzip');
     let body: Uint8Array = raw;
     if (wantsGzip && COMPRESSIBLE.has(ext)) {
-      let hit = gzipCache.get(file);
+      const key = `${file}:${info?.mtimeMs ?? 0}:${info?.size ?? raw.byteLength}`;
+      let hit = gzipCache.get(key);
       if (!hit) {
         hit = gzipSync(raw);
-        gzipCache.set(file, hit);
+        gzipCache.set(key, hit);
       }
       body = hit;
       headers['content-encoding'] = 'gzip';
@@ -146,7 +320,19 @@ const httpServer = createServer(async (req, res) => {
   }
 });
 
-const manager = new RoomManager();
+/**
+ * No DATABASE_URL means in-memory rooms and accounts — exactly the pre-Phase-1 behaviour, and
+ * what keeps `npm run server` zero-config for local play. The Postgres stores are loaded
+ * dynamically so a dev machine never has to resolve `pg` at all.
+ */
+const stores = process.env.DATABASE_URL
+  ? await (await import('./db/index.ts')).createPgStores(process.env.DATABASE_URL)
+  : { rooms: new MemoryRoomStore(), users: new MemoryUserStore(), content: new MemoryContentStore() };
+const store: RoomStore = stores.rooms;
+const users: UserStore = stores.users;
+const content: ContentStore = stores.content;
+
+const manager = new RoomManager(store);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1_000_000 });
 
 // --- Abuse limits -----------------------------------------------------------------------
@@ -199,6 +385,7 @@ function originAllowed(origin: string | undefined, host: string | undefined): bo
 }
 
 httpServer.on('upgrade', (req, socket, head) => {
+  void (async () => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   if (url.pathname !== '/ws') {
     socket.destroy();
@@ -216,7 +403,12 @@ httpServer.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req, ip));
+  // peek, never resolve: the upgrade must not mint accounts. A player who has not called
+  // /api/me yet simply seats anonymously, which is exactly the pre-Phase-2 behaviour.
+  const user = await peekUser(users, req.headers.cookie);
+  const seatUser = user ? { id: user.id, name: user.displayName } : undefined;
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req, ip, seatUser));
+  })();
 });
 
 interface Session {
@@ -224,7 +416,7 @@ interface Session {
   seat: 0 | 1;
 }
 
-wss.on('connection', (ws: WebSocket & { isAlive?: boolean }, _req: unknown, ip: string) => {
+wss.on('connection', (ws: WebSocket & { isAlive?: boolean }, _req: unknown, ip: string, user?: SeatUser) => {
   let session: Session | null = null;
   ws.isAlive = true;
   ws.on('pong', () => (ws.isAlive = true));
@@ -251,11 +443,11 @@ wss.on('connection', (ws: WebSocket & { isAlive?: boolean }, _req: unknown, ip: 
         conn.send({ t: 'error', code: 'bad-msg', message: 'Too many rooms opened. Try again later.' });
         return;
       }
-      session = manager.create(conn);
+      session = manager.create(conn, user);
     } else if (msg.t === 'join') {
-      session = manager.join(msg.code.toUpperCase(), conn) ?? session;
+      session = manager.join(msg.code.toUpperCase(), conn, user) ?? session;
     } else if (msg.t === 'rejoin') {
-      session = manager.rejoin(msg.code.toUpperCase(), msg.seat, msg.token, conn) ?? session;
+      session = manager.rejoin(msg.code.toUpperCase(), msg.seat, msg.token, conn, user) ?? session;
     } else if (session) {
       manager.handle(session.code, session.seat, msg);
     } else {
@@ -306,13 +498,27 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     console.log(`[server] ${sig} — closing ${wss.clients.size} socket(s)`);
     clearInterval(heartbeat);
     clearInterval(sweeper);
-    manager.closeAll('The server is restarting. Your room will not survive this deploy yet.');
+    manager.notifyShutdown('The server is restarting — reconnecting in a moment.');
     for (const ws of wss.clients) ws.close(1001, 'server shutting down');
-    httpServer.close(() => process.exit(0));
+    // Drain write-behind before exiting, or the tail of the action log dies with the process
+    // and returning players lose their last few moves.
+    void store.flush().then(() => httpServer.close(() => process.exit(0)));
     // Don't let a wedged socket hold the container open past the platform's grace period.
     setTimeout(() => process.exit(0), 5_000).unref();
   });
 }
+
+/**
+ * ⚠ Rehydrate before listening, never after.
+ *
+ * A client whose socket dropped during the restart reconnects within 1-10s (NetClient backs
+ * off exponentially) and sends `rejoin`. If that lands before the rooms are loaded it gets
+ * `room-not-found`, which the client treats as terminal — discarding a game that was fully
+ * recoverable. The gap is small and the failure is silent and permanent, which is the worst
+ * combination, so pay the startup latency instead.
+ */
+const restored = await manager.rehydrate();
+if (restored) console.log(`[rooms] rehydrated ${restored} room(s) from the store`);
 
 httpServer.listen(PORT, () => {
   console.log(`Terraforma relay listening on http://localhost:${PORT} (ws: /ws, static: dist/)`);

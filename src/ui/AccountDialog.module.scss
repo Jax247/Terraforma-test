@@ -1,0 +1,63 @@
+@use './styles/mixins' as *;
+
+.group + .group {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.groupTitle {
+  @include inscribed(var(--text-2xs));
+  color: var(--accent);
+  margin-bottom: var(--space-1);
+}
+
+.groupNote {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+
+  span {
+    @include inscribed(var(--text-2xs));
+    color: var(--ink-muted);
+  }
+
+  input {
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+  }
+}
+
+.error {
+  font-size: var(--text-xs);
+  color: var(--state-danger);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}

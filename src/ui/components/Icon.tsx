@@ -10,6 +10,8 @@
 
 import clsx from 'clsx';
 import {
+  User,
+  UserCheck,
   Bot,
   BookOpen,
   BrickWall,
@@ -61,6 +63,8 @@ export const ICONS = {
   boards: Grid3x3,
   online: Users,
   settings: Settings,
+  account: User,
+  accountClaimed: UserCheck,
   menu: Menu,
   close: X,
   info: Info,

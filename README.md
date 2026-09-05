@@ -34,6 +34,79 @@ npm run dev        # open the printed URL (LAN players can use the network URL)
 npm run build && npm start   # http://localhost:8787, PORT env to override
 ```
 
+**Environment.** All optional; the defaults are what makes `npm run server` zero-config.
+
+| Var | Effect if unset |
+|---|---|
+| `PORT` | 8787 |
+| `DATABASE_URL` | Rooms live in memory only and die with the process. Set it and rooms survive a restart — migrations run at boot. |
+| `SEAT_SECRET` | A random per-process secret. Seat tokens are HMACs over `code:seat`, so without a stable value nobody can rejoin after a restart, which defeats `DATABASE_URL`. **Set both or neither.** |
+| `SESSION_SECRET` | A random per-process secret. Sessions are signed cookies, so an unset value signs everyone out on every restart. |
+| `ALLOWED_ORIGIN` | The WebSocket upgrade accepts same-origin only, derived from the Host header. |
+| `MAX_ROOMS`, `MAX_SOCKETS_PER_IP`, `MAX_CREATES_PER_IP` | 500 / 12 / 40-per-hour. |
+
+`Dockerfile` + `render.yaml` deploy the lot, database included. A redeploy no longer kills
+games in progress: rooms and their action logs are rehydrated before the server starts
+listening, and players reconnect into them with the tokens they already hold.
+
+## Accounts
+
+Guest-first, because an invite link has to stay playable with no signup. The first call to
+`/api/me` mints an account for whoever asked — no email, no password, a `Guest ABCD` name —
+and hands back an httpOnly signed cookie. That identity is real: it seats you by name in the
+lobby and survives restarts.
+
+Claiming an account (`/api/auth/claim`) attaches an email and password to **that same row**,
+so nothing a guest did is orphaned by signing up; `/api/auth/login` on another browser lands
+on the same account. Passwords are scrypt (`node:crypto`, no dependency). Sessions are signed
+cookies rather than a sessions table, for the same reason seat tokens are HMACs: nothing to
+store, nothing to leak, and a restart does not log anyone out. The trade is that a session
+cannot be revoked server-side before it expires.
+
+A socket that arrives without a cookie still plays — it just seats anonymously.
+
+## Custom decks and boards
+
+They live on the account, so a deck built on one machine is playable on another. Collections
+are read and written whole (`GET /api/content`, `PUT /api/content/decks|boards`), matching what
+the UI does — the deck builder hands back a complete list.
+
+Every write carries the version it was based on. A whole-collection PUT is destructive, and
+without that check a device that loaded before a deck existed would delete it just by saving;
+a stale write gets a 409 carrying the current state to rebase onto. Decks stay opaque JSON to
+the server — `validateDeck` runs client-side where the card pool lives, so tuning RULES never
+requires a deploy.
+
+With no API behind the app — `npm run dev` without `npm run server` — this falls back to
+localStorage exactly as before. When an account is empty but the browser still holds decks
+from before, the app offers a one-time copy and leaves the local copy in place.
+
+Settings, keybinds and card-art choices deliberately stay per-device; see `src/ui/storage.ts`.
+
+## Server-side validation
+
+The server now keeps its own copy of every online game, built from the same `{config, actions}`
+it already persists, and runs each incoming action through the real engine before relaying it.
+An action the engine refuses is refused here: the sender gets a `bad-action` error and a
+`sync` back onto the truth, and the opponent never sees it. The server also shuffles both draw
+orders — the host used to, which meant one player chose both, and the lobby handed them the
+opponent's decklist to do it with. The lobby now carries `{id, name}` only.
+
+`applyAction` in a try/catch is the authority, deliberately **not** membership of
+`legalActions`: that enumeration is partial (global spells only, targets unbound), so checking
+against it would reject most legal casts.
+
+Clients still simulate and still render from their own state, so this changes nothing on the
+wire. What it adds is the fingerprint as a **canary**: both sides run the same engine, so a
+logged `FINGERPRINT MISMATCH` means version skew between this build and that client's — the
+one thing that would make the server unsafe to promote to source of truth. Watch that log
+across real games before making the server authoritative.
+
+`STRICT_ACTIONS=off` downgrades enforcement to logging, restoring the pure relay without a
+rollback if a deploy ever gets this wrong. A game the server cannot model at all (the config
+will not build) degrades to relaying rather than failing — validation is an addition to the
+relay, not a precondition for it.
+
 **Invite flow**: topbar **Online** → *Create room* → *Copy invite link* (or read out the 5-char
 code). The invitee opens the link (auto-joins) or enters the code, both pick a deck (custom decks
 work — full card defs travel with them), the host picks the board, both hit *Ready*, host starts.

@@ -200,7 +200,9 @@ export function OnlineSetup({
       <div className="seat-head">
         <span className={`seat-badge seat-badge-${index}`}>P{index + 1}</span>
         <span className="seat-role">
-          {label}
+          {/* The account name when we have one — an anonymous socket (no cookie yet) still
+              seats fine, so fall back to the role label rather than showing a blank. */}
+          {s.name ?? label}
           {you && ' (you)'}
         </span>
         <Tag tone={s.ready ? 'ok' : 'default'}>
