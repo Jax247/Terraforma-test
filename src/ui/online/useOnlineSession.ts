@@ -13,7 +13,6 @@ import {
   DECK_TOKENS,
   initGame,
   makeArenaBoard,
-  shuffled,
 } from '../../engine';
 import type { Action, Board, DeckDef, GameState, PlayerConfig, PlayerId } from '../../engine';
 import { NetClient } from '../../net/client';
@@ -23,9 +22,6 @@ import type { ClientMsg, LobbyState, ServerMsg, StartPayload } from '../../net/p
 import { resetExperiments } from '../experiments';
 import { clearOnlineSession, loadOnlineSession, loadOnlineSetup, saveOnlineSession } from '../storage';
 import type { StoredBoard } from '../storage';
-
-/** Live games shuffle off Math.random; the headless harness seeds it instead (see engine/rng.ts). */
-const shuffle = <T,>(xs: T[]): T[] => shuffled(xs, Math.random);
 
 export type OnlinePhase = 'idle' | 'connecting' | 'lobby' | 'playing' | 'desync';
 
@@ -206,13 +202,11 @@ export function useOnlineSession({
     netRef.current?.send({ t: 'action', seq, action: a, hash: stateFingerprint(next) });
   }
 
-  /** Host only: fix both draw orders here so the two clients build identical games. */
+  /** Host only. The server shuffles and returns both orders in the start payload. */
   function hostStart() {
     const lobby = onlineRef.current?.lobby;
-    const d0 = lobby?.seats[0].deck;
-    const d1 = lobby?.seats[1].deck;
-    if (!d0 || !d1) return;
-    netRef.current?.send({ t: 'start', orders: [shuffle(d0.list), shuffle(d1.list)] });
+    if (!lobby?.seats[0].deck || !lobby.seats[1].deck) return;
+    netRef.current?.send({ t: 'start' });
   }
 
   handlerRef.current = (m: ServerMsg) => {

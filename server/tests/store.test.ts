@@ -55,7 +55,7 @@ function playSome(store: RoomStore) {
   mgr.handle(code, 0, { t: 'setBoard', board, boardName: 'Arena' });
   mgr.handle(code, 0, { t: 'ready', ready: true });
   mgr.handle(code, 1, { t: 'ready', ready: true });
-  mgr.handle(code, 0, { t: 'start', orders: [['x'], ['p']] });
+  mgr.handle(code, 0, { t: 'start' });
   mgr.handle(code, 0, { t: 'action', seq: 0, action: endTurn });
   mgr.handle(code, 1, { t: 'action', seq: 1, action: endTurn });
   return { mgr, host, guest, code };
@@ -95,7 +95,10 @@ describe('surviving a restart', () => {
     if (sync.phase !== 'game') throw new Error('expected a game sync');
     expect(sync.actions).toEqual([endTurn, endTurn]);
     expect(sync.config.decks).toEqual([deckA, deckB]);
-    expect(sync.config.orders).toEqual([['x'], ['p']]);
+    // Server-shuffled at start, so assert the orders survived the restart intact rather than
+    // any particular sequence.
+    expect([...sync.config.orders[0]].sort()).toEqual(['x', 'y']);
+    expect([...sync.config.orders[1]].sort()).toEqual(['p', 'q']);
   });
 
   it('accepts the original seat token after a restart, because tokens are derived not stored', async () => {

@@ -83,6 +83,30 @@ from before, the app offers a one-time copy and leaves the local copy in place.
 
 Settings, keybinds and card-art choices deliberately stay per-device; see `src/ui/storage.ts`.
 
+## Server-side validation
+
+The server now keeps its own copy of every online game, built from the same `{config, actions}`
+it already persists, and runs each incoming action through the real engine before relaying it.
+An action the engine refuses is refused here: the sender gets a `bad-action` error and a
+`sync` back onto the truth, and the opponent never sees it. The server also shuffles both draw
+orders — the host used to, which meant one player chose both, and the lobby handed them the
+opponent's decklist to do it with. The lobby now carries `{id, name}` only.
+
+`applyAction` in a try/catch is the authority, deliberately **not** membership of
+`legalActions`: that enumeration is partial (global spells only, targets unbound), so checking
+against it would reject most legal casts.
+
+Clients still simulate and still render from their own state, so this changes nothing on the
+wire. What it adds is the fingerprint as a **canary**: both sides run the same engine, so a
+logged `FINGERPRINT MISMATCH` means version skew between this build and that client's — the
+one thing that would make the server unsafe to promote to source of truth. Watch that log
+across real games before making the server authoritative.
+
+`STRICT_ACTIONS=off` downgrades enforcement to logging, restoring the pure relay without a
+rollback if a deploy ever gets this wrong. A game the server cannot model at all (the config
+will not build) degrades to relaying rather than failing — validation is an addition to the
+relay, not a precondition for it.
+
 **Invite flow**: topbar **Online** → *Create room* → *Copy invite link* (or read out the 5-char
 code). The invitee opens the link (auto-joins) or enters the code, both pick a deck (custom decks
 work — full card defs travel with them), the host picks the board, both hit *Ready*, host starts.

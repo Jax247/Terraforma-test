@@ -20,7 +20,14 @@ export interface StartPayload {
 export interface LobbySeat {
   connected: boolean;
   ready: boolean;
-  deck?: DeckDef;
+  /**
+   * Identity only — never the decklist.
+   *
+   * This used to carry the whole `DeckDef`, so both players received every card id in their
+   * opponent's deck before the game even began, while the UI rendered nothing but the name.
+   * Fog of war means little if the lobby has already given the deck away.
+   */
+  deck?: { id: string; name: string };
   /** Display name of the account holding the seat, once it has one. */
   name?: string;
 }
@@ -39,6 +46,7 @@ export type ErrorCode =
   | 'bad-seq'
   | 'not-host'
   | 'not-ready'
+  | 'bad-action'
   | 'bad-msg';
 
 export type ClientMsg =
@@ -48,7 +56,10 @@ export type ClientMsg =
   | { t: 'setDeck'; deck: DeckDef }
   | { t: 'setBoard'; board: Board; boardName: string } // host only
   | { t: 'ready'; ready: boolean }
-  | { t: 'start'; orders: [string[], string[]] } // host only; both ready
+  // Host only, both ready. The host no longer picks the draw orders: the lobby does not carry
+  // decklists any more, and a shuffle the players control is not one they should be trusted
+  // with. The server shuffles from the decks it already holds.
+  | { t: 'start' }
   | { t: 'action'; seq: number; action: Action; hash?: number }
   | { t: 'resync' }
   | { t: 'leave' };

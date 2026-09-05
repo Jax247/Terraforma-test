@@ -15,4 +15,7 @@
  *
  * Value imports only — `import type` from src/ is free and does not belong here.
  */
-export { changedRules, RULES } from '../src/engine/rules.ts';
+export { changedRules, resetRules, RULES } from '../src/engine/rules.ts';
+export { applyAction, initGame } from '../src/engine/engine.ts';
+export { DECK_CARDS, DECK_TOKENS } from '../src/engine/content/decks/index.ts';
+export { shuffled } from '../src/engine/rng.ts';

@@ -44,7 +44,7 @@ function makeStarted() {
   mgr.handle(code, 0, { t: 'setBoard', board, boardName: 'Arena' });
   mgr.handle(code, 0, { t: 'ready', ready: true });
   mgr.handle(code, 1, { t: 'ready', ready: true });
-  mgr.handle(code, 0, { t: 'start', orders: [['y', 'x'], ['q', 'p']] });
+  mgr.handle(code, 0, { t: 'start' });
   return ctx;
 }
 
@@ -99,25 +99,29 @@ describe('lobby flow and start', () => {
     expect(guest.last()).toMatchObject({ t: 'error', code: 'not-host' });
   });
 
-  it('start assembles the payload from both decks + board + orders and broadcasts it', () => {
+  it('start assembles the payload from both decks + board + server-shuffled orders', () => {
     const { host, guest } = makeStarted();
     for (const conn of [host, guest]) {
       const start = conn.ofType('start')[0]!;
       expect(start.config.decks).toEqual([deckA, deckB]);
       expect(start.config.board).toEqual(board);
-      expect(start.config.orders).toEqual([['y', 'x'], ['q', 'p']]);
+      // The SERVER shuffles now, so the orders are unpredictable by design — the property
+      // that matters is that each is a permutation of that seat's own decklist and nothing
+      // the players supplied.
+      expect([...start.config.orders[0]].sort()).toEqual(['x', 'y']);
+      expect([...start.config.orders[1]].sort()).toEqual(['p', 'q']);
     }
   });
 
   it('rejects start from the guest and start before both are ready', () => {
     const { mgr, host, guest, code } = makeLobby();
-    mgr.handle(code, 1, { t: 'start', orders: [[], []] });
+    mgr.handle(code, 1, { t: 'start' });
     expect(guest.last()).toMatchObject({ t: 'error', code: 'not-host' });
     mgr.handle(code, 0, { t: 'setDeck', deck: deckA });
     mgr.handle(code, 1, { t: 'setDeck', deck: deckB });
     mgr.handle(code, 0, { t: 'setBoard', board, boardName: 'Arena' });
     mgr.handle(code, 0, { t: 'ready', ready: true });
-    mgr.handle(code, 0, { t: 'start', orders: [[], []] });
+    mgr.handle(code, 0, { t: 'start' });
     expect(host.last()).toMatchObject({ t: 'error', code: 'not-ready' });
     expect(host.ofType('start')).toHaveLength(0);
   });

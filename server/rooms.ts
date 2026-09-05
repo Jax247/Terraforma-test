@@ -13,6 +13,9 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Action, Board, DeckDef } from '../src/engine/index.ts';
 import type { ClientMsg, ErrorCode, LobbyState, ServerMsg, StartPayload } from '../src/net/protocol.ts';
 import { MemoryRoomStore, type RoomSnapshot, type RoomStore, type SeatUser } from './store.ts';
+import { shuffled } from './engine.ts';
+import { applyIntent, materialize, type Match } from './match.ts';
+import { stateFingerprint } from '../src/net/protocol.ts';
 
 /** Minimal connection adapter so tests can drive rooms without sockets. */
 export interface Conn {
@@ -38,8 +41,33 @@ interface Room {
   boardName?: string;
   config?: StartPayload; // set once the host starts
   actions: Action[];
+  /**
+   * The server's own game, built lazily from {config, actions}.
+   *
+   * Not persisted: replaying the log costs milliseconds, and a stored snapshot would be a
+   * second source of truth that could drift from the log it was derived from.
+   */
+  match?: Match;
+  /**
+   * Set when building the server's game threw, so it is not retried on every action.
+   *
+   * Validation is an addition to the relay, not a precondition for it. If a config cannot
+   * build a game the clients cannot build it either and the match is already lost — but that
+   * is not a reason for this server to stop relaying, or to take down the rooms around it.
+   */
+  matchFailed?: boolean;
   lastActivity: number;
 }
+
+/**
+ * Refuse actions the engine refuses. On by default — the clients this server validates are
+ * the ones it served, so they run the same engine build.
+ *
+ * The escape hatch exists because this is the first phase where the server can reject real
+ * play. If a deploy ever gets it wrong, turning enforcement off restores the pure relay
+ * without a rollback, and the mismatch log keeps recording either way.
+ */
+const STRICT_ACTIONS = process.env.STRICT_ACTIONS !== 'off';
 
 // No 0/O/1/I so codes survive being read aloud.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -135,6 +163,23 @@ export class RoomManager {
       });
     }
     return rows.length;
+  }
+
+  /**
+   * Build the server's copy of a game, or give up on validating this room.
+   *
+   * Never throws: a room that cannot be modelled degrades to the pure relay it was before
+   * this phase, which is strictly better than failing the message that triggered the build.
+   */
+  private tryMaterialize(room: Room, actions: Action[]): Match | undefined {
+    if (!room.config) return undefined;
+    try {
+      return materialize(room.config, actions);
+    } catch (e) {
+      room.matchFailed = true;
+      console.warn(`[match] ${room.code}: cannot model this game, relaying without validation:`, e);
+      return undefined;
+    }
   }
 
   /** The persistable projection of a live room — drops `conn`, which cannot outlive a process. */
@@ -283,8 +328,11 @@ export class RoomManager {
         room.config = {
           decks: [room.seats[0].deck, guest.deck],
           board: room.board,
-          orders: msg.orders,
+          // The server shuffles. The host used to, which meant one player chose both draw
+          // orders — and the lobby handed them the opponent's decklist to do it with.
+          orders: [shuffled(room.seats[0].deck.list, Math.random), shuffled(guest.deck.list, Math.random)],
         };
+        room.match = this.tryMaterialize(room, []);
         room.phase = 'playing';
         this.persist(room);
         this.broadcast(room, { t: 'start', config: room.config });
@@ -301,6 +349,34 @@ export class RoomManager {
           this.close(room, 'Room closed: action limit reached.');
           return;
         }
+
+        // Validate against the server's own game before the action reaches the other player.
+        // Rooms rehydrated after a restart have no match yet, so build one on first use.
+        if (!room.match && !room.matchFailed) room.match = this.tryMaterialize(room, room.actions);
+        if (room.match) {
+          const result = applyIntent(room.match, seat, msg.action);
+          if (!result.ok) {
+            console.warn(`[match] ${room.code} seq ${msg.seq} seat ${seat} rejected: ${result.reason}`);
+            if (STRICT_ACTIONS) {
+              // Sync the offender back onto the truth. A client that sent this in good faith
+              // has already applied it locally and would otherwise carry on diverged.
+              this.fail(ss.conn, 'bad-action', result.reason);
+              if (ss.conn) this.sendSync(room, ss.conn);
+              return;
+            }
+          } else {
+            room.match = { state: result.state, applied: room.match.applied + 1 };
+            // The canary. Both sides run the same engine, so a mismatch means version skew
+            // between this build and that client's — the one thing that would make the server
+            // unsafe to promote to source of truth. Log it loudly and change nothing else.
+            if (msg.hash !== undefined && stateFingerprint(result.state) !== msg.hash) {
+              console.error(
+                `[match] FINGERPRINT MISMATCH room ${room.code} seq ${msg.seq} seat ${seat} action ${msg.action.t}`,
+              );
+            }
+          }
+        }
+
         room.actions.push(msg.action);
         // The action row is the durable one; the room row only carries lastActivity forward,
         // which is what keeps a game in progress from ageing out of the TTL sweep.
