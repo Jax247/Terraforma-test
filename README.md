@@ -65,6 +65,24 @@ cannot be revoked server-side before it expires.
 
 A socket that arrives without a cookie still plays — it just seats anonymously.
 
+## Custom decks and boards
+
+They live on the account, so a deck built on one machine is playable on another. Collections
+are read and written whole (`GET /api/content`, `PUT /api/content/decks|boards`), matching what
+the UI does — the deck builder hands back a complete list.
+
+Every write carries the version it was based on. A whole-collection PUT is destructive, and
+without that check a device that loaded before a deck existed would delete it just by saving;
+a stale write gets a 409 carrying the current state to rebase onto. Decks stay opaque JSON to
+the server — `validateDeck` runs client-side where the card pool lives, so tuning RULES never
+requires a deploy.
+
+With no API behind the app — `npm run dev` without `npm run server` — this falls back to
+localStorage exactly as before. When an account is empty but the browser still holds decks
+from before, the app offers a one-time copy and leaves the local copy in place.
+
+Settings, keybinds and card-art choices deliberately stay per-device; see `src/ui/storage.ts`.
+
 **Invite flow**: topbar **Online** → *Create room* → *Copy invite link* (or read out the 5-char
 code). The invitee opens the link (auto-joins) or enters the code, both pick a deck (custom decks
 work — full card defs travel with them), the host picks the board, both hit *Ready*, host starts.

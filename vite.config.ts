@@ -64,6 +64,9 @@ export default defineConfig({
     host: true, // let LAN playtesters hit the dev server
     proxy: {
       '/ws': { target: 'ws://localhost:8787', ws: true, changeOrigin: true },
+      // Without this the account and content APIs 404 through Vite, and the client silently
+      // drops to its localStorage fallback — which looks exactly like sync being broken.
+      '/api': { target: 'http://localhost:8787', changeOrigin: true },
     },
   },
   test: {

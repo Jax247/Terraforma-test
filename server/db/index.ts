@@ -9,12 +9,14 @@ import pg from 'pg';
 import { migrate } from './migrate.ts';
 import { PgRoomStore } from './pgStore.ts';
 import { PgUserStore } from './pgUserStore.ts';
+import { PgContentStore } from './pgContentStore.ts';
 
 const { Pool } = pg;
 
 export async function createPgStores(connectionString: string): Promise<{
   rooms: PgRoomStore;
   users: PgUserStore;
+  content: PgContentStore;
 }> {
   const pool = new Pool({
     connectionString,
@@ -23,5 +25,5 @@ export async function createPgStores(connectionString: string): Promise<{
     ssl: connectionString.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
   });
   await migrate(pool);
-  return { rooms: new PgRoomStore(pool), users: new PgUserStore(pool) };
+  return { rooms: new PgRoomStore(pool), users: new PgUserStore(pool), content: new PgContentStore(pool) };
 }

@@ -17,6 +17,7 @@ import type { ClientMsg } from '../src/net/protocol.ts';
 import { RoomManager, type Conn } from './rooms.ts';
 import { MemoryRoomStore, type RoomStore, type SeatUser } from './store.ts';
 import { MemoryUserStore, type User, type UserStore } from './users.ts';
+import { isConflict, MemoryContentStore, type Collection, type ContentStore } from './content.ts';
 import {
   clearCookie,
   hashPassword,
@@ -82,9 +83,16 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 /**
- * Compressed bodies for text assets, filled lazily and never evicted. Bounded in practice:
- * dist/ holds a handful of JS/CSS/JSON files (~700 KB raw), and the image tree — the actual
- * bulk — is not compressible so never lands here.
+ * Compressed bodies for text assets, filled lazily.
+ *
+ * Keyed by path + mtime + size, NOT by path alone. A container image never changes under a
+ * running process, but a local `npm start` does: rebuild dist/ and a path-keyed cache keeps
+ * serving the previous index.html, which names bundles that no longer exist. The result is a
+ * blank page and a 404 for a hashed asset — a failure that looks like broken application code
+ * and is nothing of the sort.
+ *
+ * Bounded in practice: dist/ holds a handful of JS/CSS/JSON files (~700 KB raw), and the image
+ * tree — the actual bulk — is not compressible so never lands here.
  */
 const gzipCache = new Map<string, Uint8Array>();
 
@@ -197,6 +205,36 @@ async function handleApi(
     return;
   }
 
+  // --- Custom decks and boards -----------------------------------------------------------
+  //
+  // Collections are read and written whole, matching what the UI actually does. Every write
+  // carries the version it was based on: a whole-collection PUT is destructive, and without
+  // the check a device that loaded before a deck existed would delete it just by saving.
+
+  if (pathname === '/api/content' && method === 'GET') {
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    sendJson(res, 200, await content.get(user.id), setCookie);
+    return;
+  }
+
+  const putMatch = /^\/api\/content\/(decks|boards)$/.exec(pathname);
+  if (putMatch && method === 'PUT') {
+    const collection = putMatch[1] as Collection;
+    const { user, setCookie } = await resolveUser(users, req.headers.cookie);
+    const body = await readJson(req);
+    if (!body) return sendJson(res, 400, { error: 'Malformed request.' }, setCookie);
+    const items = body['items'];
+    const version = body['version'];
+    if (!Array.isArray(items) || typeof version !== 'number') {
+      return sendJson(res, 400, { error: 'Expected { items: [], version: n }.' }, setCookie);
+    }
+    const result = await content.put(user.id, collection, items, version);
+    // 409 carries the current state, so the client can reconcile instead of guessing.
+    if (isConflict(result)) return sendJson(res, 409, result, setCookie);
+    sendJson(res, 200, result, setCookie);
+    return;
+  }
+
   sendJson(res, 404, { error: 'Not found.' });
 }
 
@@ -237,7 +275,8 @@ const httpServer = createServer(async (req, res) => {
     }
 
     let pathname = url.pathname;
-    if (!(await stat(file).catch(() => null))?.isFile()) {
+    let info = await stat(file).catch(() => null);
+    if (!info?.isFile()) {
       if (ASSET_PREFIXES.some((p) => pathname.startsWith(p))) {
         res.writeHead(404, { 'content-type': 'text/plain', 'cache-control': 'no-store' }).end('Not found');
         return;
@@ -245,6 +284,7 @@ const httpServer = createServer(async (req, res) => {
       // SPA fallback so /?room=CODE (and any client route) serves the app.
       file = join(DIST, 'index.html');
       pathname = '/index.html';
+      info = await stat(file).catch(() => null);
     }
 
     const ext = extname(file);
@@ -258,10 +298,11 @@ const httpServer = createServer(async (req, res) => {
     const wantsGzip = (req.headers['accept-encoding'] ?? '').includes('gzip');
     let body: Uint8Array = raw;
     if (wantsGzip && COMPRESSIBLE.has(ext)) {
-      let hit = gzipCache.get(file);
+      const key = `${file}:${info?.mtimeMs ?? 0}:${info?.size ?? raw.byteLength}`;
+      let hit = gzipCache.get(key);
       if (!hit) {
         hit = gzipSync(raw);
-        gzipCache.set(file, hit);
+        gzipCache.set(key, hit);
       }
       body = hit;
       headers['content-encoding'] = 'gzip';
@@ -286,9 +327,10 @@ const httpServer = createServer(async (req, res) => {
  */
 const stores = process.env.DATABASE_URL
   ? await (await import('./db/index.ts')).createPgStores(process.env.DATABASE_URL)
-  : { rooms: new MemoryRoomStore(), users: new MemoryUserStore() };
+  : { rooms: new MemoryRoomStore(), users: new MemoryUserStore(), content: new MemoryContentStore() };
 const store: RoomStore = stores.rooms;
 const users: UserStore = stores.users;
+const content: ContentStore = stores.content;
 
 const manager = new RoomManager(store);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1_000_000 });

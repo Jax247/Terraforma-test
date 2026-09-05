@@ -207,20 +207,9 @@ export function toDeckDef(d: StoredDeck): DeckDef {
   return { id: d.id, name: d.name, leader: leaderById(d.leaderId), cards, list: [...d.list], fusionPool: [...d.fusionPool] };
 }
 
-/** App-owned persistent state: setter writes through to localStorage. */
-function usePersistentList<T>(load: () => T[], save: (items: T[]) => void): [T[], (items: T[]) => void] {
-  const [items, setItems] = useState<T[]>(load);
-  return [
-    items,
-    (next: T[]) => {
-      setItems(next);
-      save(next);
-    },
-  ];
-}
-
-export const useStoredBoards = () => usePersistentList<StoredBoard>(loadBoards, saveBoards);
-export const useStoredDecks = () => usePersistentList<StoredDeck>(loadDecks, saveDecks);
+// Decks and boards are no longer read through a hook here: they may live on the account, so
+// they load asynchronously via src/ui/useContent.ts. The load/save functions above remain as
+// the localStorage backend behind LocalRepo, and as the source for the one-time import.
 
 /** App settings, write-through like the lists above. */
 export function useStoredSettings(): [StoredSettings, (next: StoredSettings) => void] {
