@@ -723,43 +723,62 @@ interface Material {
 const slopeOf = (s: Surface) => clamp01(s.slope);
 
 const MATERIALS: Record<Terrain, Material> = {
-  // Bare compacted earth. Most of the board is this, so it has to hold up without
-  // ever asking to be looked at: fine grain, a scatter of pebbles, and dried-mud
-  // cracking that only appears where the ground is flat enough to have dried flat.
+  // Grey brick paving. Most of the board is this, so it has to hold up without ever
+  // asking to be looked at: small pavers laid in courses, joints that read as joints
+  // rather than as cracks, and enough per-block variation that forty tiles of it do
+  // not flatten into one slab.
+  //
+  // Built from the same brick() primitive as Wall, at a finer course count — this is
+  // a floor being walked on, not a face catching raking light, so the relief is lower
+  // and the wear lands on the crowns of the blocks rather than running down them.
   Normal: {
-    relief: 1.3,
-    gloss: 0.02,
-    ao: 0.7,
-    rough: () => 0.9,
-    field: (size) => {
-      const H = fieldFrom(size, (u, v) => {
-        const [wu, wv] = warp2(u, v, 4, 11, 0.28);
-        const ground = fbm(wu, wv, 6, 5, 13) * 0.6 + fbm(u, v, 26, 4, 17) * 0.24;
-        // ⚠ Density-gated and small. A dome in every cell is bubble wrap, not
-        // ground — real earth is grain with the occasional stone sitting in it.
-        const c = worley(u, v, 18, 19, 1);
-        const stone = c.id > 0.78 && c.f1 < 0.3 ? (1 - (c.f1 / 0.3) ** 2) * 0.1 : 0;
-        return ground + stone;
-      });
-      // A light drizzle of droplets: not enough for gullies, just enough to break
-      // the noise up with the beginnings of runoff.
-      hydraulicErode(H, size, Math.round(size * size * 0.04), 4711);
-      return normalizeField(H);
-    },
+    relief: 2.6,
+    gloss: 0.05,
+    shine: 20,
+    ao: 0.8,
+    // ⚠ Needed for the same reason Wall needs one: without a floor, the height step
+    // at a joint occludes to nearly zero and every joint renders as a black chasm.
+    // 0.7, well above Wall's 0.4: a floor is lit from above, so its joints catch
+    // far more sky than a wall's do. At 0.45 they still rendered as black slots.
+    aoFloor: 0.7,
+    // aoFloor alone was not enough — in the PRELIT map the joints are also fully
+    // cast-shadowed, and there `ambient` is the floor, not aoFloor (see the `lit`
+    // term in render()). 0.5 is what stops them reading as slots cut in the tile.
+    ambient: 0.5,
+    rough: () => 0.82,
+    field: (size) =>
+      fieldFrom(size, (u, v) => {
+        const b = brick(u, v, 11, 331, 0.011);
+        // Each paver bows very slightly, settles a little proud or low of its
+        // neighbours, and roughly one in seven has a corner knocked off.
+        const bow = (1 - Math.hypot(b.bx - 0.5, b.by - 0.5) * 1.3) * 0.07;
+        const sunk = (b.id - 0.5) * 0.05;
+        const chip = b.id > 0.86 ? smoothstep(0.3, 0.85, Math.hypot(b.bx - b.id, b.by - 0.5)) * 0.16 : 0;
+        // Tooth on the faces only — the joints are filled, not abraded.
+        const wear = fbm(u, v, 44, 3, 337) * 0.07;
+        return 0.2 + b.face * (0.42 + bow + sunk - chip) + wear * b.face;
+      }),
     albedo: (u, v, s, base) => {
-      const dirt = fbm(u, v, 5, 3, 23);
-      const warm = mix(base, [172, 152, 122], 0.42);
-      const pale = mix(base, [228, 222, 208], 0.4);
-      let c = mix(warm, pale, clamp01(dirt * 0.66 + s.h * 0.5));
-      // Dried mud polygons, and only on ground flat enough to have dried flat.
-      const crack = worley(u, v, 9, 29, 0.95);
-      const seam = 1 - smoothstep(0, 0.09, crack.f2 - crack.f1);
-      c = mix(c, shade(c, 0.62), sharpen(seam) * (1 - slopeOf(s)) * 0.7);
-      // Iron oxide drift, so the ground is not one hue at two brightnesses.
-      c = mix(c, mix(c, [156, 104, 72], 0.5), turbulence(u, v, 7, 3, 37) * 0.22);
-      const tuft = worley(u, v, 22, 41, 1);
-      const dry = tuft.f1 < 0.3 && tuft.id > 0.82 ? smoothstep(0.3, 0.1, tuft.f1) : 0;
-      return mix(c, mix(base, [150, 142, 92], 0.55), dry * 0.5);
+      const b = brick(u, v, 11, 331, 0.011);
+      // Every constant here is neutral. The whole point of the surface is that it
+      // reads as grey stone, so nothing is allowed to pull it toward a hue.
+      // Darker than the pavers by COLOUR, not only by occlusion — the joints have
+      // to survive the aoFloor that keeps them from going black.
+      const mortar = shade(mix(base, [84, 84, 90], 0.58), 0.78);
+      const stone = shade(mix(base, [148, 148, 154], 0.4), 0.86 + b.id * 0.34);
+      let c = mix(mortar, stone, b.face);
+      // Per-paver drift between a warmer and a cooler grey, so a field of them is
+      // not one value at forty brightnesses.
+      c = mix(c, mix(c, [120, 122, 130], 0.5), turbulence(u, v, 6, 3, 341) * 0.18);
+      // Grime collects in the joints, and in whatever the pavers have dished into.
+      const grime = clamp01(s.curvature * 2.2) * (1 - b.face * 0.65);
+      c = mix(c, shade(c, 0.7), clamp01(grime) * 0.5);
+      // Foot polish on the crowns of the blocks, where the wear actually happens.
+      const polish = b.face * smoothstep(0.45, 0.95, s.h) * (1 - slopeOf(s));
+      c = mix(c, shade(c, 1.14), polish * 0.3);
+      // Chipped corners show lighter, unweathered stone.
+      const chip = b.id > 0.86 ? smoothstep(0.3, 0.85, Math.hypot(b.bx - b.id, b.by - 0.5)) : 0;
+      return mix(c, shade(c, 1.2), chip * 0.4);
     },
   },
 
