@@ -1,0 +1,9 @@
+# The build context is copied wholesale — without this, the 106 MB art backup, the stale
+# 48 MB dist/, and node_modules all ship to the builder.
+node_modules
+dist
+.git
+.env
+*.log
+card-art-jpg-backup.tar.gz
+.claude

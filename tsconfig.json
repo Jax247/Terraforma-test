@@ -14,6 +14,11 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "noEmit": true,
+    // `server/` runs as TypeScript via Node type-stripping, which erases types but cannot
+    // emit runtime code. Enforced repo-wide so an enum or parameter property fails here
+    // rather than at deploy time. Binds src/engine, src/ai and src/net too — the server
+    // imports those directly (see scripts/register-ts-ext.mjs).
+    "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true,
     "types": ["vite/client", "node"]
   },

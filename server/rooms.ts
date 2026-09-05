@@ -45,6 +45,14 @@ const CODE_LENGTH = 5;
 const OFFLINE_ROOM_TTL_MS = 30 * 60 * 1000; // both seats gone
 const LOBBY_ROOM_TTL_MS = 60 * 60 * 1000; // never started
 
+/**
+ * Ceiling on one room's action log. The log is append-only and replayed on every rejoin, so
+ * without a bound it is unbounded memory a seated client can grow at will. Real games run to
+ * a few hundred actions (the longest self-play in the suite is well under 500), so this is
+ * roughly 20x headroom — a room that reaches it is looping, not playing.
+ */
+const MAX_ACTIONS_PER_ROOM = 10_000;
+
 function newToken(): string {
   return crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 }
@@ -168,6 +176,10 @@ export class RoomManager {
           if (ss.conn) this.sendSync(room, ss.conn);
           return;
         }
+        if (room.actions.length >= MAX_ACTIONS_PER_ROOM) {
+          this.close(room, 'Room closed: action limit reached.');
+          return;
+        }
         room.actions.push(msg.action);
         this.broadcast(room, { t: 'action', seq: msg.seq, action: msg.action, hash: msg.hash });
         return;
@@ -207,6 +219,15 @@ export class RoomManager {
       }
     }
     return closed;
+  }
+
+  /**
+   * Close every room with one reason. Used on SIGTERM: a container stop is routine on a PaaS,
+   * and a player who is told the server is restarting understands what they are looking at,
+   * where a socket that simply dies leaves them staring at a reconnect spinner.
+   */
+  closeAll(reason: string): void {
+    for (const room of [...this.rooms.values()]) this.close(room, reason);
   }
 
   private leave(room: Room, seat: Seat): void {

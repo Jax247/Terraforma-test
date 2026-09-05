@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: terraforma
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      # Stable across deploys so seat tokens survive a restart once Phase 1 lands.
+      # Without it the server falls back to a per-process secret and every rejoin fails.
+      - key: SEAT_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production

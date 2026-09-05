@@ -27,10 +27,16 @@ export class NetClient {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByUser = false;
 
-  constructor(
-    private onMsg: (m: ServerMsg) => void,
-    private onStatus: (s: NetStatus) => void,
-  ) {}
+  // Plain fields rather than constructor parameter properties: `server/` runs under Node's
+  // TypeScript type-stripping, which only accepts erasable syntax, and `erasableSyntaxOnly`
+  // is enforced repo-wide so a violation fails typecheck instead of the deploy.
+  private onMsg: (m: ServerMsg) => void;
+  private onStatus: (s: NetStatus) => void;
+
+  constructor(onMsg: (m: ServerMsg) => void, onStatus: (s: NetStatus) => void) {
+    this.onMsg = onMsg;
+    this.onStatus = onStatus;
+  }
 
   /** Open the connection with a create/join/rejoin hello. */
   connect(hello: ClientMsg): void {
