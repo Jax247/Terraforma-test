@@ -15,6 +15,7 @@ import { gzipSync } from 'node:zlib';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg } from '../src/net/protocol.ts';
 import { RoomManager, type Conn } from './rooms.ts';
+import { MemoryRoomStore, type RoomStore } from './store.ts';
 import { changedRules } from './engine.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -88,7 +89,16 @@ const httpServer = createServer(async (req, res) => {
 
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({ ok: true, rooms: manager.size, uptime: Math.round(process.uptime()) }));
+      // `degraded` means writes are failing: games still play, but they stop being durable.
+      // Surfacing it here is what turns that from a silent regression into an alert.
+      res.end(
+        JSON.stringify({
+          ok: true,
+          rooms: manager.size,
+          durable: !store.degraded,
+          uptime: Math.round(process.uptime()),
+        }),
+      );
       return;
     }
 
@@ -146,7 +156,16 @@ const httpServer = createServer(async (req, res) => {
   }
 });
 
-const manager = new RoomManager();
+/**
+ * No DATABASE_URL means in-memory rooms — exactly the pre-Phase-1 behaviour, and what keeps
+ * `npm run server` zero-config for local play. The Postgres store is loaded dynamically so a
+ * dev machine never has to resolve `pg` at all.
+ */
+const store: RoomStore = process.env.DATABASE_URL
+  ? await (await import('./db/pgStore.ts')).createPgStore(process.env.DATABASE_URL)
+  : new MemoryRoomStore();
+
+const manager = new RoomManager(store);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1_000_000 });
 
 // --- Abuse limits -----------------------------------------------------------------------
@@ -306,13 +325,27 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     console.log(`[server] ${sig} — closing ${wss.clients.size} socket(s)`);
     clearInterval(heartbeat);
     clearInterval(sweeper);
-    manager.closeAll('The server is restarting. Your room will not survive this deploy yet.');
+    manager.notifyShutdown('The server is restarting — reconnecting in a moment.');
     for (const ws of wss.clients) ws.close(1001, 'server shutting down');
-    httpServer.close(() => process.exit(0));
+    // Drain write-behind before exiting, or the tail of the action log dies with the process
+    // and returning players lose their last few moves.
+    void store.flush().then(() => httpServer.close(() => process.exit(0)));
     // Don't let a wedged socket hold the container open past the platform's grace period.
     setTimeout(() => process.exit(0), 5_000).unref();
   });
 }
+
+/**
+ * ⚠ Rehydrate before listening, never after.
+ *
+ * A client whose socket dropped during the restart reconnects within 1-10s (NetClient backs
+ * off exponentially) and sends `rejoin`. If that lands before the rooms are loaded it gets
+ * `room-not-found`, which the client treats as terminal — discarding a game that was fully
+ * recoverable. The gap is small and the failure is silent and permanent, which is the worst
+ * combination, so pay the startup latency instead.
+ */
+const restored = await manager.rehydrate();
+if (restored) console.log(`[rooms] rehydrated ${restored} room(s) from the store`);
 
 httpServer.listen(PORT, () => {
   console.log(`Terraforma relay listening on http://localhost:${PORT} (ws: /ws, static: dist/)`);

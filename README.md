@@ -34,6 +34,20 @@ npm run dev        # open the printed URL (LAN players can use the network URL)
 npm run build && npm start   # http://localhost:8787, PORT env to override
 ```
 
+**Environment.** All optional; the defaults are what makes `npm run server` zero-config.
+
+| Var | Effect if unset |
+|---|---|
+| `PORT` | 8787 |
+| `DATABASE_URL` | Rooms live in memory only and die with the process. Set it and rooms survive a restart — migrations run at boot. |
+| `SEAT_SECRET` | A random per-process secret. Seat tokens are HMACs over `code:seat`, so without a stable value nobody can rejoin after a restart, which defeats `DATABASE_URL`. **Set both or neither.** |
+| `ALLOWED_ORIGIN` | The WebSocket upgrade accepts same-origin only, derived from the Host header. |
+| `MAX_ROOMS`, `MAX_SOCKETS_PER_IP`, `MAX_CREATES_PER_IP` | 500 / 12 / 40-per-hour. |
+
+`Dockerfile` + `render.yaml` deploy the lot, database included. A redeploy no longer kills
+games in progress: rooms and their action logs are rehydrated before the server starts
+listening, and players reconnect into them with the tokens they already hold.
+
 **Invite flow**: topbar **Online** → *Create room* → *Copy invite link* (or read out the 5-char
 code). The invitee opens the link (auto-joins) or enters the code, both pick a deck (custom decks
 work — full card defs travel with them), the host picks the board, both hit *Ready*, host starts.

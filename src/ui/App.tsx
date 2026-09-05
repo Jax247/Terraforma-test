@@ -317,7 +317,11 @@ function OnlineRoute({
   keybinds: Keybinds;
   battlePopup: boolean;
 }) {
-  const { code } = useParams();
+  // The route is "/online/*", so react-router names the match "*" — destructuring `code` here
+  // always yielded undefined, and /online/ABCD only worked at all because readInviteCode()
+  // scrapes the pathname once at load. Read the splat the route actually provides.
+  const splat = useParams()['*'] ?? '';
+  const code = /^([A-Za-z0-9]+)/.exec(splat)?.[1]?.toUpperCase();
   const { online, begin } = session;
 
   useEffect(() => {

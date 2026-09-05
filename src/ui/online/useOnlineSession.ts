@@ -258,7 +258,12 @@ export function useOnlineSession({
       case 'error':
         if (m.code === 'bad-seq') return; // the server follows up with a sync
         if (m.code === 'room-not-found' || m.code === 'bad-token' || m.code === 'room-full') {
-          // We can't be in that room: back to the entry screen.
+          // We can't be in that room: back to the entry screen. Tear the socket down as well
+          // as the UI state — leaving it up keeps a client that still believes it holds a
+          // seat, which then re-sends `rejoin` on every reconnect and loops on this very
+          // error. The entry screen has no Leave button, so the loop is unescapable.
+          netRef.current?.close();
+          netRef.current = null;
           clearOnlineSession();
           setGame(null);
           setOnline((o) => o && { ...freshOnline(o.initialCode, m.message) });

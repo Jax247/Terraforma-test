@@ -41,7 +41,12 @@ export class NetClient {
   /** Open the connection with a create/join/rejoin hello. */
   connect(hello: ClientMsg): void {
     this.hello = hello;
-    if (hello.t === 'rejoin') this.session = { code: hello.code, seat: hello.seat, token: hello.token };
+    // A create or join is a deliberate move to a DIFFERENT room, so any seat we still hold is
+    // finished. Without this the reconnect path in open() keeps preferring the old session
+    // and re-sends `rejoin` forever — the server answers room-not-found, the UI resets to the
+    // entry screen without tearing the client down, and "Create a room" loops with no way out
+    // but a page reload.
+    this.session = hello.t === 'rejoin' ? { code: hello.code, seat: hello.seat, token: hello.token } : null;
     this.closedByUser = false;
     this.open('connecting');
   }

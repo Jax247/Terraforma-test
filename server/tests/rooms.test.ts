@@ -57,7 +57,7 @@ describe('room creation and joining', () => {
     expect(code).toMatch(/^[A-HJ-NP-Z2-9]{5}$/);
     const created = host.ofType('created')[0]!;
     expect(created.code).toBe(code);
-    expect(created.token).toHaveLength(16);
+    expect(created.token).toMatch(/^[\w-]{22}$/); // HMAC over code:seat, base64url
   });
 
   it('joins seat 1 and broadcasts the lobby to both', () => {
