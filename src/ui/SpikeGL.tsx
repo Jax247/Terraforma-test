@@ -161,6 +161,58 @@ function rngFor(seed: number): () => number {
   };
 }
 
+/**
+ * Hashed value noise on a unit lattice, and the ridged fold built from it.
+ *
+ * Small and local: the terrain MATERIALS are generated offline by
+ * scripts/genTerrainTex.ts and have a far richer noise kit, but the mountain mesh
+ * needs its shape at mesh-build time on the client, and this is the only caller.
+ */
+function hash2(x: number, y: number, seed: number): number {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function noise2(x: number, y: number, seed: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const fx = x - xi;
+  const fy = y - yi;
+  // Smoothstep the interpolant, so the lattice does not show as a diamond grid.
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const a = hash2(xi, yi, seed);
+  const b = hash2(xi + 1, yi, seed);
+  const c = hash2(xi, yi + 1, seed);
+  const d = hash2(xi + 1, yi + 1, seed);
+  return (a + (b - a) * sx) + ((c + (d - c) * sx) - (a + (b - a) * sx)) * sy;
+}
+
+/**
+ * Folded noise: the absolute value puts a CREASE where the field crosses zero, and
+ * a crease is what a ridge line is. Plain fbm gives rolling hills; this gives
+ * ridges with valleys between them.
+ */
+function ridged2(x: number, y: number, octaves: number, seed: number): number {
+  let sum = 0;
+  let amp = 1;
+  let norm = 0;
+  let f = 1;
+  for (let i = 0; i < octaves; i++) {
+    sum += (1 - Math.abs(noise2(x * f, y * f, seed + i * 211) * 2 - 1)) * amp;
+    norm += amp;
+    amp *= 0.5;
+    f *= 2;
+  }
+  return sum / norm;
+}
+
+const smoothstep01 = (t: number) => {
+  const x = t < 0 ? 0 : t > 1 ? 1 : t;
+  return x * x * (3 - 2 * x);
+};
+
 // ---------------------------------------------------------------------------
 // Geometry
 //
@@ -181,11 +233,22 @@ const LIGHT: [number, number, number] = (() => {
 
 const AMBIENT = 0.42;
 
+/**
+ * The shading term an UPWARD-facing face gets. Every face divides its own term by
+ * this before it reaches the shader, so a flat tile top arrives as exactly 1.0 and
+ * the material path below it is untouched — see `aShade` in the fragment shader.
+ */
+const K_TOP = AMBIENT + (1 - AMBIENT) * LIGHT[2];
+
+/** pos(3) + colour(3) + uv(2) + layer(1) + shade(1). Kept with the `stride` below. */
+const FLOATS_PER_VERTEX = 10;
+
 class Mesh {
   readonly data: number[] = [];
   /**
    * Which terrain material the faces being emitted right now are made of, as an
-   * index into the texture array. -1 = untextured, which is what the scenery uses.
+   * index into the texture array. -1 = untextured, which is what most of the
+   * scenery uses — the Mountain height field is the one prop that raises it.
    *
    * Carried as mesh state rather than threaded through every call because a tile
    * emits ten faces and a tree emits sixteen, and passing the same layer down all
@@ -215,7 +278,7 @@ class Mesh {
     for (let i = 0; i < 3; i++) {
       const p = pts[i]!;
       const t = uv?.[i] ?? [0, 0];
-      this.data.push(p[0]!, p[1]!, p[2]!, lit[0], lit[1], lit[2], t[0]!, t[1]!, uv ? this.layer : -1);
+      this.data.push(p[0]!, p[1]!, p[2]!, lit[0], lit[1], lit[2], t[0]!, t[1]!, uv ? this.layer : -1, k / K_TOP);
     }
   }
 
@@ -299,25 +362,100 @@ const PROPS: Record<string, (p: Plot) => void> = {
     }
   },
 
+  /**
+   * ONE mountain, whose base is the whole tile.
+   *
+   * It used to be one or two five-sided cones with a base radius of about 60% of the
+   * tile HALF-width, which read as traffic cones parked on a square. This is a
+   * height field sampled across the entire tile instead: a Chebyshev falloff takes it
+   * to exactly zero on all four tile borders, so the foot meets the slab's top face
+   * flush and no bare tile is left showing, and ridged noise plus one off-centre
+   * summit give it valleys, shoulders and lesser hills — the profile changes as it
+   * rises rather than tapering uniformly the way a pyramid does.
+   *
+   * Unlike every other prop this one is TEXTURED, on the Mountain material layer.
+   * It has to be: it covers the tile's own top face, so without the material the
+   * mountain tiles would be the only ones on the board with no material at all.
+   */
   Mountain: ({ mesh, cx, cy, half, top, base, rand }) => {
     const rock = shade(base, 0.9);
     const snow = mix(base, [1, 1, 1], 0.75);
-    const peaks = 1 + Math.floor(rand() * 2);
-    for (let i = 0; i < peaks; i++) {
-      const x = cx + (rand() - 0.5) * half * (peaks > 1 ? 1.0 : 0.35);
-      const y = cy + (rand() - 0.5) * half * (peaks > 1 ? 1.0 : 0.35);
-      const h = half * (1.15 + rand() * 0.7) / peaks ** 0.4;
-      const r = half * (0.5 + rand() * 0.2) / peaks ** 0.5;
-      mesh.spire(x, y, r, r * 0.18, top, top + h * 0.72, 5, rock);
-      mesh.spire(x, y, r * 0.2, 0, top + h * 0.72, top + h, 5, snow); // a cap, for the silhouette
+    const seed = Math.floor(rand() * 1e6);
+    // Where the summit sits. Off-centre, or every mountain on the board is the same
+    // mountain seen from a different chair.
+    const px = (rand() - 0.5) * 0.44;
+    const py = (rand() - 0.5) * 0.44;
+    const mass = 1.05 + rand() * 0.25;
+    // Grain of the ridges, shifted per tile so neighbours are not clones.
+    const ox = rand() * 40;
+    const oy = rand() * 40;
+
+    /** Height above the tile's top face, at tile coords a, b in -1..1. */
+    const heightAt = (a: number, b: number): number => {
+      // ⚠ Chebyshev, not Euclidean. A radial falloff leaves the four corners of the
+      // tile bare; this one reaches zero on the BORDER of the square, which is what
+      // "the base spans the entire tile" means.
+      const skirt = smoothstep01(1 - Math.max(Math.abs(a), Math.abs(b))) ** 0.8;
+      const cone = smoothstep01(1 - Math.hypot(a - px, b - py) / 0.85) ** 0.7;
+      const ridge = ridged2(a * 1.9 + ox, b * 1.9 + oy, 4, seed);
+      const hills = ridged2(a * 3.0 + ox, b * 3.0 + oy, 2, seed + 7);
+      // ⚠ The relief is SCALED BY the cone rather than merely added to it. Added, it
+      // is the same corrugation top to bottom and the mountain reads as a fluted
+      // pyramid; scaled, the foot stays broad and smooth and the structure — the
+      // ridges, the notches between them, the lesser summits — arrives as you climb,
+      // which is what makes it read as a mountain rather than as a shape.
+      const relief = 0.45 * ridge + 0.28 * hills;
+      return half * mass * skirt * (0.2 + 0.5 * cone + relief * (0.5 + 0.8 * cone));
+    };
+
+    // 14x14 cells: enough for the ridges to read, and 392 triangles on the handful
+    // of Mountain tiles a board has is nothing against the terrain slabs.
+    const N = 14;
+    // Sampled up front rather than per cell: every interior vertex is shared by four
+    // cells, and the summit has to be KNOWN before the snow line can be drawn from
+    // it. A fixed ceiling does not work — the noise terms almost never peak together,
+    // so the tallest point of any given mountain lands well below the formula's
+    // maximum and a threshold against that maximum snows nothing.
+    const grid: { p: number[]; uv: [number, number]; h: number }[][] = [];
+    let peak = 0;
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * 2 - 1;
+      const col: { p: number[]; uv: [number, number]; h: number }[] = [];
+      for (let j = 0; j <= N; j++) {
+        const b = (j / N) * 2 - 1;
+        const h = heightAt(a, b);
+        if (h > peak) peak = h;
+        col.push({ p: [cx + a * half, cy + b * half, top + h], uv: [(a + 1) / 2, (b + 1) / 2], h });
+      }
+      grid.push(col);
     }
+
+    // Snow on the top fifth, so the mountain still reads as one with the Texture
+    // dial at zero — which is where spike3d.defaults.json leaves it.
+    const colour = (...hs: number[]) =>
+      mix(rock, snow, smoothstep01((hs.reduce((x, y) => x + y, 0) / hs.length / (peak || 1) - 0.78) / 0.18));
+
+    mesh.layer = TERRAIN_LAYERS.indexOf('Mountain');
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const q00 = grid[i]![j]!;
+        const q10 = grid[i + 1]![j]!;
+        const q11 = grid[i + 1]![j + 1]!;
+        const q01 = grid[i]![j + 1]!;
+        mesh.tri(q00.p, q10.p, q11.p, colour(q00.h, q10.h, q11.h), [q00.uv, q10.uv, q11.uv]);
+        mesh.tri(q00.p, q11.p, q01.p, colour(q00.h, q11.h, q01.h), [q00.uv, q11.uv, q01.uv]);
+      }
+    }
+    // ⚠ Restore it. buildMesh sets layer to -1 before calling a generator, so a
+    // generator that raises it owes the next tile the same starting state.
+    mesh.layer = -1;
   },
 
   // ⚠ Sea and Desert deliberately have NO entry here.
   //
   // Both used to subdivide the tile's top face into a grid of flat-shaded quads —
   // a wave surface and a dune surface — from back when the terrain carried no
-  // material at all. Scenery is untextured by design, so those quads sat ON TOP
+  // material at all. Scenery was untextured, so those quads sat ON TOP
   // of the textured face and hid it completely: the sea rendered as three coarse
   // blocks of flat blue and did not respond to the Texture dial at all, because
   // the pixels being drawn were geometry rather than material.
@@ -326,6 +464,10 @@ const PROPS: Record<string, (p: Plot) => void> = {
   // field shapes the swell and the dunes, and the surface map carries that relief
   // into the shader as real per-pixel normals. Geometry for it as well only
   // occludes the thing it was imitating.
+  //
+  // Mountain covers its tile too, but pays for it: it carries the material on its
+  // own faces rather than hiding it, which is the bar any future full-tile prop
+  // has to clear.
 
   Grassland: ({ mesh, cx, cy, half, top, base, rand }) => {
     const tuft = mix(shade(base, 0.8), [0.35, 0.5, 0.18], 0.4);
@@ -378,6 +520,7 @@ in vec3 aPos;
 in vec3 aColor;
 in vec2 aUV;
 in float aLayer;
+in float aShade;
 uniform mat4 uMVP;
 // ⚠ Explicit precision on everything the FRAGMENT shader also declares. A vertex
 // shader defaults float to highp and the fragment below asks for mediump, so an
@@ -388,9 +531,11 @@ out vec3 vColor;
 out vec2 vUV;
 out highp vec3 vWorld;
 flat out float vLayer;
+flat out float vShade;
 void main() {
   vColor = aColor;
   vUV = aUV;
+  vShade = aShade;
   // World position, for the view vector the specular needs. The camera moves, so
   // the highlight has to move with it — that is the one thing baked light cannot
   // do, and the reason the surface maps exist at all.
@@ -399,8 +544,9 @@ void main() {
   gl_Position = uMVP * vec4(aPos, 1.0);
 }`;
 
-// A negative layer means "no material" — the scenery (trees, peaks, crenellations)
-// is lit vertex colour and nothing else.
+// A negative layer means "no material" — the scenery (trees, tufts, crenellations)
+// is lit vertex colour and nothing else. The Mountain height field is the exception:
+// it covers its tile's top face, so it carries the material that face would have.
 //
 // Terrain faces are LIT HERE rather than sampled pre-lit. The albedo map carries
 // colour only; the surface map carries the normal, the occlusion (ambient plus the
@@ -414,6 +560,7 @@ in vec3 vColor;
 in vec2 vUV;
 in highp vec3 vWorld;
 flat in float vLayer;
+flat in float vShade;
 uniform sampler2DArray uAlbedo;
 uniform sampler2DArray uSurface;
 uniform float uTexStrength;
@@ -444,6 +591,11 @@ void main() {
       float spec = pow(max(0.0, dot(n, normalize(l + view))), shininess) * (1.0 - rough) * 0.6;
       lit = alb * (0.34 + 0.66 * lam) * occ + vec3(spec) * occ;
     }
+    // The relighting above assumes the face points UP (see the tangent-space note),
+    // which is true of every tile top and of nothing else. vShade carries the face's
+    // own orientation, normalised so an upward face is 1.0 and costs nothing; on a
+    // mountain slope it is what keeps the lit side lit and the shaded side shaded.
+    lit *= vShade;
     // Mixed against the flat terrain colour, so the strength dial runs from the
     // plain board to full material exactly as it does on the CSS tiles.
     c = mix(c, lit, uTexStrength);
@@ -695,11 +847,12 @@ export function SpikeGL({
     const uMVP = gl.getUniformLocation(prog, 'uMVP');
     gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    const stride = 36; // pos(3) + colour(3) + uv(2) + layer(1), all floats
+    const stride = FLOATS_PER_VERTEX * 4;
     const aPos = gl.getAttribLocation(prog, 'aPos');
     const aCol = gl.getAttribLocation(prog, 'aColor');
     const aUV = gl.getAttribLocation(prog, 'aUV');
     const aLayer = gl.getAttribLocation(prog, 'aLayer');
+    const aShade = gl.getAttribLocation(prog, 'aShade');
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, stride, 0);
     gl.enableVertexAttribArray(aCol);
@@ -708,6 +861,8 @@ export function SpikeGL({
     gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, stride, 24);
     gl.enableVertexAttribArray(aLayer);
     gl.vertexAttribPointer(aLayer, 1, gl.FLOAT, false, stride, 32);
+    gl.enableVertexAttribArray(aShade);
+    gl.vertexAttribPointer(aShade, 1, gl.FLOAT, false, stride, 36);
 
     // ---- the terrain materials, as a texture ARRAY ---------------------------
     // An array rather than an atlas: nine independent 512px layers cannot bleed
@@ -805,7 +960,7 @@ export function SpikeGL({
       const data = buildMesh(tiles, props);
       gl!.bindBuffer(gl!.ARRAY_BUFFER, buf);
       gl!.bufferData(gl!.ARRAY_BUFFER, data, gl!.STATIC_DRAW);
-      vertexCount = data.length / 9;
+      vertexCount = data.length / FLOATS_PER_VERTEX;
     }
 
     function buildMVP() {

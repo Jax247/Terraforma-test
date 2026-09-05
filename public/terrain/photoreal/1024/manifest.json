@@ -5,9 +5,9 @@
   "fast": false,
   "maps": {
     "normal": {
-      "albedo": 290766,
-      "surface": 537104,
-      "prelit": 117072
+      "albedo": 292106,
+      "surface": 525850,
+      "prelit": 88642
     },
     "forest": {
       "albedo": 308064,

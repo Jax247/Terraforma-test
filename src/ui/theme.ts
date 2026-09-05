@@ -1,7 +1,7 @@
 import type { Terrain } from '../engine';
 
 export const TERRAIN_COLOR: Record<Terrain, string> = {
-  Normal: '#cfc8b8',
+  Normal: '#b6b6ba',
   Forest: '#4e8f4a',
   Mountain: '#9c8b72',
   Sea: '#4a7fc4',
