@@ -245,13 +245,16 @@ const httpServer = createServer(async (req, res) => {
 
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      // `degraded` means writes are failing: games still play, but they stop being durable.
-      // Surfacing it here is what turns that from a silent regression into an alert.
+      // Two different failures, deliberately not conflated. `persistent` is whether there is
+      // a database at all; `degraded` is whether an existing one has started refusing writes.
+      // An in-memory store is not "degraded" — it is working exactly as designed — so
+      // reporting only `degraded` would claim durability this server does not have.
       res.end(
         JSON.stringify({
           ok: true,
           rooms: manager.size,
-          durable: !store.degraded,
+          durable: stores.persistent && !store.degraded,
+          persistent: stores.persistent,
           uptime: Math.round(process.uptime()),
         }),
       );
@@ -325,9 +328,52 @@ const httpServer = createServer(async (req, res) => {
  * what keeps `npm run server` zero-config for local play. The Postgres stores are loaded
  * dynamically so a dev machine never has to resolve `pg` at all.
  */
-const stores = process.env.DATABASE_URL
-  ? await (await import('./db/index.ts')).createPgStores(process.env.DATABASE_URL)
-  : { rooms: new MemoryRoomStore(), users: new MemoryUserStore(), content: new MemoryContentStore() };
+/**
+ * ⚠ A database problem must never stop this server from starting.
+ *
+ * This used to be a bare top-level await: if Postgres was unreachable, the credentials were
+ * wrong, or a migration failed, the process exited before `listen()` and the platform
+ * crash-looped it. The symptom is the worst kind — the URL simply does not respond, with
+ * nothing on the page to say why — and it contradicted the rule applied everywhere else, that
+ * a failing store degrades rather than taking live games down.
+ *
+ * Now the app always comes up. Without a working database it runs exactly as it did before
+ * Phase 1: rooms in memory, guests only, decks from each browser's localStorage. `/health`
+ * reports `durable: false` so the degradation is visible rather than silent.
+ */
+interface Stores {
+  rooms: RoomStore;
+  users: UserStore;
+  content: ContentStore;
+  /** Whether anything survives a restart. Distinct from `degraded` — see /health. */
+  persistent: boolean;
+}
+
+const memoryStores = (): Stores => ({
+  rooms: new MemoryRoomStore(),
+  users: new MemoryUserStore(),
+  content: new MemoryContentStore(),
+  persistent: false,
+});
+
+async function openStores(): Promise<Stores> {
+  if (!process.env.DATABASE_URL) {
+    console.log('[boot] DATABASE_URL unset — rooms, accounts and decks are in-memory only.');
+    return memoryStores();
+  }
+  try {
+    const pg = await (await import('./db/index.ts')).createPgStores(process.env.DATABASE_URL);
+    console.log('[boot] Postgres connected — rooms, accounts and decks are durable.');
+    return { ...pg, persistent: true };
+  } catch (e) {
+    console.error('[boot] DATABASE_URL is set but Postgres could not be reached.', e);
+    console.error('[boot] Starting WITHOUT persistence so the app is still playable. Fix the');
+    console.error('[boot] database and redeploy; /health reports "durable": false until then.');
+    return memoryStores();
+  }
+}
+
+const stores = await openStores();
 const store: RoomStore = stores.rooms;
 const users: UserStore = stores.users;
 const content: ContentStore = stores.content;
@@ -517,7 +563,11 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
  * recoverable. The gap is small and the failure is silent and permanent, which is the worst
  * combination, so pay the startup latency instead.
  */
-const restored = await manager.rehydrate();
+// Same rule: a store that cannot be read costs us the old rooms, not the server.
+const restored = await manager.rehydrate().catch((e: unknown) => {
+  console.error('[rooms] could not rehydrate rooms from the store:', e);
+  return 0;
+});
 if (restored) console.log(`[rooms] rehydrated ${restored} room(s) from the store`);
 
 httpServer.listen(PORT, () => {
