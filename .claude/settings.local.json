@@ -15,7 +15,8 @@
       "Bash(cd *)",
       "Bash(grep -vE \"^\\\\s*$\" /private/tmp/claude-501/-Users-jay-Code-test-terraforma-test/df3a8a21-d1ae-4901-a176-72381a149686/tasks/bo196ntzw.output)",
       "Bash(grep -vE \"^\\\\s*$\" /tmp/spdeep.out)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(SD=/private/tmp/claude-501/-Users-jay-Code-git-terraforma-test/f4b73536-13d4-40a4-b4af-5ffdd010585a/scratchpad node play.mjs)"
     ],
     "additionalDirectories": [
       "/Users/jay/Documents/Vaults/Terraforma-Design"

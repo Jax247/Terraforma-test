@@ -1,0 +1,133 @@
+@use './styles/mixins' as *;
+
+// A floating dial box rather than a section of the Settings dialog, and that is the
+// whole point of it: a modal drops a backdrop over the board, and a camera you
+// cannot see while you move it is a camera you cannot judge. Settings owns the
+// CHOICE (3D or Simple); this owns the tuning.
+.tuner {
+  position: fixed;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  // Above the board and the floating rails, below the modals (Modal's backdrop is
+  // in the 100s) so opening card detail still covers it.
+  z-index: 60;
+  width: 17rem;
+  max-height: min(34rem, calc(100dvh - 6rem));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: 0 12px 32px #00000073;
+  // The board runs underneath it at high zoom; without this the tiles show through
+  // the panel and both become unreadable.
+  backdrop-filter: blur(6px);
+
+  // On a phone the board IS the screen, so a box pinned over one corner of it hides
+  // the thing being tuned. Full width along the bottom instead, where the hand is
+  // already the busy edge.
+  @include below(md) {
+    left: var(--space-2);
+    right: var(--space-2);
+    width: auto;
+    max-height: 50dvh;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.title {
+  @include inscribed(var(--text-2xs));
+  color: var(--accent);
+}
+
+.body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-3);
+}
+
+.section + .section {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sectionTitle {
+  @include inscribed(var(--text-3xs));
+  color: var(--ink-muted);
+  margin-bottom: var(--space-2);
+}
+
+// Label / slider / readout. The readout is a fixed column so the row does not
+// twitch sideways as the number gains a digit while you drag.
+.row {
+  display: grid;
+  grid-template-columns: 3.4rem minmax(0, 1fr) 3rem;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0;
+}
+
+.rowLabel {
+  font-size: var(--text-2xs);
+  color: var(--ink-secondary);
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.value {
+  @include numeric;
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  text-align: right;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 0;
+  font-size: var(--text-2xs);
+  color: var(--ink-secondary);
+  cursor: pointer;
+
+  input {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+}
+
+.hint {
+  font-size: var(--text-3xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+  min-height: 2.4em;
+  margin-bottom: var(--space-2);
+}
+
+.foot {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.note {
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-3xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-normal);
+}

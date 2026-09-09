@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { DECK_CARDS, DECKS } from '../engine';
 import type { BoardLayout, CardDef, DeckDef, LeaderDef } from '../engine';
 import type { AiConfig } from './AiSettings';
+import { BOARD_VIEW_DEFAULTS, normalizeBoardView } from './boardView';
+import type { BoardView } from './boardView';
 import type { ExperimentConfig } from './experiments';
 import { DEFAULT_KEYBINDS } from './keybinds';
 import type { Keybinds } from './keybinds';
@@ -111,9 +113,16 @@ export interface StoredSettings {
   keybinds: Keybinds;
   /** Show the brief both-cards panel when a combat resolves; see game/BattlePopup.tsx. */
   battlePopup: boolean;
+  /** 3D or flat board, and the camera dials; see src/ui/boardView.ts. */
+  board: BoardView;
 }
 
-export const DEFAULT_SETTINGS: StoredSettings = { motion: 'auto', keybinds: DEFAULT_KEYBINDS, battlePopup: true };
+export const DEFAULT_SETTINGS: StoredSettings = {
+  motion: 'auto',
+  keybinds: DEFAULT_KEYBINDS,
+  battlePopup: true,
+  board: BOARD_VIEW_DEFAULTS,
+};
 
 export const loadSettings = (): StoredSettings => {
   const stored = loadObject<Partial<StoredSettings>>(SETTINGS_KEY);
@@ -123,6 +132,10 @@ export const loadSettings = (): StoredSettings => {
     // Merged a level deeper than the rest: settings saved before a command existed carry a
     // keybind map without it, and a plain spread would leave that command on no key at all.
     keybinds: { ...DEFAULT_KEYBINDS, ...stored?.keybinds },
+    // Same reason, plus one of its own: these numbers go straight into CSS, so a dial
+    // missing or non-finite silently leaves the board pitched at the stylesheet fallback
+    // while the slider claims otherwise. normalizeBoardView checks each one.
+    board: normalizeBoardView(stored?.board),
   };
 };
 export const saveSettings = (s: StoredSettings): void => saveObject(SETTINGS_KEY, s);

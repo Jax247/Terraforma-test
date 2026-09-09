@@ -39,13 +39,50 @@ npm run build && npm start   # http://localhost:8787, PORT env to override
 | Var | Effect if unset |
 |---|---|
 | `PORT` | 8787 |
-| `DATABASE_URL` | Rooms live in memory only and die with the process. Set it and rooms survive a restart — migrations run at boot. |
+| `DATABASE_URL` | Rooms live in memory only and die with the process. Set it and rooms survive a restart — migrations run at boot. If it is set but unreachable, the server still starts (in-memory) and says so in the log and on `/health`, rather than crash-looping. |
 | `SEAT_SECRET` | A random per-process secret. Seat tokens are HMACs over `code:seat`, so without a stable value nobody can rejoin after a restart, which defeats `DATABASE_URL`. **Set both or neither.** |
 | `SESSION_SECRET` | A random per-process secret. Sessions are signed cookies, so an unset value signs everyone out on every restart. |
 | `ALLOWED_ORIGIN` | The WebSocket upgrade accepts same-origin only, derived from the Host header. |
 | `MAX_ROOMS`, `MAX_SOCKETS_PER_IP`, `MAX_CREATES_PER_IP` | 500 / 12 / 40-per-hour. |
 
-`Dockerfile` + `render.yaml` deploy the lot, database included. A redeploy no longer kills
+`Dockerfile` + `render.yaml` (Render) or `railway.json` (Railway) deploy the lot, database
+included.
+
+### Railway
+
+`railway.json` pins the Dockerfile builder, the `/health` check, and — importantly —
+`numReplicas: 1`. Rooms live in an in-memory map that is rehydrated at boot, so two replicas
+each get their own: a player routed to the wrong one is told their room does not exist. Do not
+raise that number without moving the room working set out of process.
+
+Railway has no equivalent of Render's `generateValue`, so **set these by hand** under
+Variables, once, and never rotate them:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — a reference to the Postgres service, not a pasted string |
+| `SEAT_SECRET` | any long random string |
+| `SESSION_SECRET` | any long random string |
+| `NODE_ENV` | `production` |
+
+Rotating `SEAT_SECRET` invalidates every live seat; rotating `SESSION_SECRET` signs everyone
+out. Leaving them unset is worse than either — the server generates a random one per process,
+so both happen on every single deploy.
+
+**If the URL does not respond at all**, in order of likelihood:
+
+1. **No public domain.** Railway does not create one by default — Settings → Networking →
+   Generate Domain. A service with no domain is running fine and simply unreachable.
+2. **The deploy is crash-looping.** Check the deploy logs for the `[boot]` lines. The server
+   now starts even when the database is unreachable, so a crash loop here means something
+   earlier: the wrong Node version if the Dockerfile was bypassed, or a failed build.
+3. **Port.** The Dockerfile exposes 8787, but the server binds `process.env.PORT`, which
+   Railway injects. If you have set a target port manually, it must match what Railway injects,
+   not 8787.
+
+`GET /health` is the fastest diagnosis once the domain answers: `persistent: false` means the
+app came up without a database — playable, but rooms, accounts and decks all die on redeploy,
+and the reason is printed in the boot log. A redeploy no longer kills
 games in progress: rooms and their action logs are rehydrated before the server starts
 listening, and players reconnect into them with the tokens they already hold.
 
