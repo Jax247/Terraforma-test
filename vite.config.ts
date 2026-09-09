@@ -5,27 +5,26 @@ import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 /**
- * SPIKE (throwaway) — lets the 3D board's dial panel write itself back to disk.
+ * Lets the 3D board's tuner write its dials back to disk.
  *
- * The panel's settings live in localStorage, which nobody but that browser can
- * read. Hitting "lock in as default" POSTs the current dials here and they land in
- * `src/ui/spike3d.defaults.json`, which the panel imports as its defaults — so the
- * configuration someone actually settled on becomes the one everybody opens with,
- * and is reviewable in the diff rather than trapped in a browser profile.
+ * A player's settings live in localStorage, which nobody but that browser can read.
+ * Hitting "Save as defaults" POSTs the current dials here and they land in
+ * `src/ui/boardView.defaults.json`, which every new browser opens with — so the
+ * camera someone actually settled on becomes the shipped one, and is reviewable in
+ * the diff rather than trapped in a browser profile.
  *
- * `apply: 'serve'` — dev only. A production build has no write endpoint at all.
- * The payload is validated against the KEYS AND TYPES already in the file rather
- * than written through, so this cannot be used to put arbitrary content on disk.
- *
- * TO REVERT: delete this plugin, its entry in `plugins`, and the JSON file.
+ * `apply: 'serve'` — dev only, and the button that calls it is behind
+ * `import.meta.env.DEV`. A production build has no write endpoint at all. The
+ * payload is validated against the KEYS AND TYPES already in the file rather than
+ * written through, so this cannot be used to put arbitrary content on disk.
  */
-function spike3dDefaults(): Plugin {
-  const FILE = path.resolve(process.cwd(), 'src/ui/spike3d.defaults.json');
+function boardViewDefaults(): Plugin {
+  const FILE = path.resolve(process.cwd(), 'src/ui/boardView.defaults.json');
   return {
-    name: 'spike3d-defaults',
+    name: 'board-view-defaults',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/__spike3d/defaults', (req, res, next) => {
+      server.middlewares.use('/__boardview/defaults', (req, res, next) => {
         if (req.method !== 'POST') return next();
         let body = '';
         req.on('data', (chunk) => {
@@ -59,7 +58,7 @@ function spike3dDefaults(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), spike3dDefaults()],
+  plugins: [react(), boardViewDefaults()],
   server: {
     host: true, // let LAN playtesters hit the dev server
     proxy: {

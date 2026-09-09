@@ -1,5 +1,5 @@
 /**
- * SPIKE — the WebGL terrain layer for the hybrid board.
+ * The WebGL terrain layer for the 3D board.
  *
  * The split: WebGL draws the GROUND — extruded tiles with real height, side
  * walls, lighting, and a little per-terrain scenery. The existing DOM board keeps
@@ -15,7 +15,7 @@
  * at distance P from the z=0 plane with `fov = 2·atan(H / 2P)`, in a world
  * measured in CSS pixels with Y flipped. Measured across pitch 20-65°, yaw ±22°,
  * zoom 0.5-2.2x, lens 600-3000px and a full-corner pan, the two agree to under a
- * pixel (0.03px at the default camera). `window.__spikeGL.verify()` re-runs that.
+ * pixel (0.03px at the default camera). `window.__boardGL.verify()` re-runs that.
  *
  * ⚠ The equivalence needs the perspective origin at the CENTRE of the viewport,
  * because a plain perspective camera is on-axis. So the canvas sizes and
@@ -23,13 +23,15 @@
  * `perspective-origin` is a SHEARED frustum — `camera.setViewOffset` territory.
  *
  * ── Height ────────────────────────────────────────────────────────────────────
- * Heights come from `--spike-h` times `--spike-relief-used`, both read per tile
+ * Heights come from `--board3d-h` times `--board3d-relief-used`, both read per tile
  * off the live stylesheet. That is on purpose: the DOM tiles are lifted by the
  * very same expression, so the two layers cannot disagree about how tall a tile
  * is without someone editing one number in one place. The relief is per tile
  * rather than global because a terrain may opt out of the dial — Wall does.
  *
- * TO REVERT: delete this file and its mount in Spike3D.tsx.
+ * Switched off — Simple view, or the Terrain layer toggle in Settings — this
+ * renders nothing, mounts no context and leaves no attribute behind, so the flat
+ * board is not paying for it. That is what makes it safe to default on.
  */
 
 import { useEffect, useState } from 'react';
@@ -69,7 +71,7 @@ function translation(x: number, y: number, z: number): M4 {
  * The element's CURRENT transform, straight off computed style.
  *
  * Read rather than reconstructed, and that is the whole fix for the board and the
- * terrain drifting apart while you navigate. The dials (`--spike-pan-x` and
+ * terrain drifting apart while you navigate. The dials (`--board3d-pan-x` and
  * friends) jump to their target the instant focus moves, but the DOM board eases
  * to it over 260ms — so a camera rebuilt from the dials snapped to the end state
  * and the terrain visibly detached from the tiles for the length of every glide.
@@ -431,7 +433,7 @@ const PROPS: Record<string, (p: Plot) => void> = {
     }
 
     // Snow on the top fifth, so the mountain still reads as one with the Texture
-    // dial at zero — which is where spike3d.defaults.json leaves it.
+    // dial at zero — which is where boardView.defaults.json leaves it.
     const colour = (...hs: number[]) =>
       mix(rock, snow, smoothstep01((hs.reduce((x, y) => x + y, 0) / hs.length / (peak || 1) - 0.78) / 0.18));
 
@@ -609,7 +611,7 @@ function compile(gl: WebGL2RenderingContext): WebGLProgram | null {
     gl.shaderSource(sh, src);
     gl.compileShader(sh);
     if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-      console.error('[spikeGL]', gl.getShaderInfoLog(sh));
+      console.error('[boardGL]', gl.getShaderInfoLog(sh));
       return null;
     }
     return sh;
@@ -622,7 +624,7 @@ function compile(gl: WebGL2RenderingContext): WebGLProgram | null {
   gl.attachShader(p, fs);
   gl.linkProgram(p);
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-    console.error('[spikeGL]', gl.getProgramInfoLog(p));
+    console.error('[boardGL]', gl.getProgramInfoLog(p));
     return null;
   }
   return p;
@@ -648,7 +650,7 @@ function readTiles(board: HTMLElement): TileInfo[] {
   const borderT = Number.parseFloat(cs.borderTopWidth) || 0;
   // transform-origin is 50% 50% of the BORDER box; tile offsets are measured from
   // the padding edge, hence the border terms. (`.board` is the tiles' offsetParent
-  // because it carries a transform — see the note in Spike3D.tsx.)
+  // because it carries a transform — see the note in BoardScene.tsx.)
   const ox = board.offsetWidth / 2;
   const oy = board.offsetHeight / 2;
   const rootStyle = getComputedStyle(document.documentElement);
@@ -663,13 +665,13 @@ function readTiles(board: HTMLElement): TileInfo[] {
     // The SAME expression the DOM tile is lifted by, read off the same two custom
     // properties — one number, one place, so the layers cannot drift apart.
     //
-    // `--spike-relief-used` is per TILE, not global: a terrain may opt out of the
+    // `--board3d-relief-used` is per TILE, not global: a terrain may opt out of the
     // relief dial, and Wall does — it is pinned to the top of the range so it
-    // always reads as impassable. Reading the global `--spike-relief` here would
+    // always reads as impassable. Reading the global `--board3d-relief` here would
     // put the GL geometry a long way under the DOM tile on every wall.
     const tileStyle = getComputedStyle(t);
-    const h = Number.parseFloat(tileStyle.getPropertyValue('--spike-h')) || 0;
-    const relief = Number.parseFloat(tileStyle.getPropertyValue('--spike-relief-used')) || 0;
+    const h = Number.parseFloat(tileStyle.getPropertyValue('--board3d-h')) || 0;
+    const relief = Number.parseFloat(tileStyle.getPropertyValue('--board3d-relief-used')) || 0;
     out.push({
       label: t.getAttribute('aria-label')?.split(',').slice(0, 2).join(',') ?? '?',
       terrain,
@@ -760,7 +762,7 @@ function readCamera(board: HTMLElement, col: HTMLElement) {
   };
 }
 
-export function SpikeGL({
+export function BoardGL({
   on,
   props,
   style,
@@ -797,7 +799,10 @@ export function SpikeGL({
     // changes — not on the DOM churn of every unit that moves.
     const sync = () =>
       setBoardEl((prev) => {
-        const next = document.querySelector<HTMLElement>('.board');
+        // ⚠ `.board-col .board`, not `.board`. The MAP EDITOR renders a grid with the
+        // same classes and no perspective column, and a bare selector attached the
+        // canvas to whichever came first in the document.
+        const next = document.querySelector<HTMLElement>('.board-col .board');
         return next === prev ? prev : next;
       });
     sync();
@@ -816,27 +821,27 @@ export function SpikeGL({
     if (!col) return;
 
     const canvas = document.createElement('canvas');
-    canvas.className = 'spike-gl';
+    canvas.className = 'board3d-gl';
     canvas.setAttribute('aria-hidden', 'true');
     col.insertBefore(canvas, col.firstChild);
     // `.board` paints its own opaque `--surface-sunken` over the canvas behind it,
     // which is what hid the first run of this layer entirely. The stylesheet drops
     // it while the GL layer owns the terrain.
-    document.documentElement.dataset.spikeGl = 'on';
+    document.documentElement.dataset.board3dGl = 'on';
 
     // `preserveDrawingBuffer` is for `coverage()` only — without it the buffer is
-    // gone by the time readPixels runs and the probe reports a false negative.
+    // gone by the time readPixels runs and `coverage()` reports a false negative.
     const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, depth: true, preserveDrawingBuffer: true });
     if (!gl) {
-      console.error('[spikeGL] no webgl2');
+      console.error('[boardGL] no webgl2');
       canvas.remove();
-      delete document.documentElement.dataset.spikeGl;
+      delete document.documentElement.dataset.board3dGl;
       return;
     }
     const prog = compile(gl);
     if (!prog) {
       canvas.remove();
-      delete document.documentElement.dataset.spikeGl;
+      delete document.documentElement.dataset.board3dGl;
       return;
     }
     gl.enable(gl.DEPTH_TEST);
@@ -931,7 +936,7 @@ export function SpikeGL({
         texReady = await loadArray(albedoTex, '', size);
         draw();
       } catch (err) {
-        console.error('[spikeGL] terrain albedo failed to load', err);
+        console.error('[boardGL] terrain albedo failed to load', err);
         return;
       }
       try {
@@ -941,7 +946,7 @@ export function SpikeGL({
         surfaceReady = await loadArray(surfaceTex, '-s', size >> 1);
         draw();
       } catch (err) {
-        console.error('[spikeGL] terrain surface maps failed to load', err);
+        console.error('[boardGL] terrain surface maps failed to load', err);
       }
     })();
 
@@ -1033,9 +1038,9 @@ export function SpikeGL({
       gl!.uniformMatrix4fv(uModel, false, model);
       gl!.uniform3f(uLight, sun[0], sun[1], sun[2]);
       gl!.uniform1f(uEyeZ, cam.P);
-      // Driven by the same `--spike-tex-fade` the CSS tiles read, so one dial moves
+      // Driven by the same `--board3d-tex-fade` the CSS tiles read, so one dial moves
       // both boards and they cannot disagree about how strong the material is.
-      const fade = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--spike-tex-fade'));
+      const fade = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--board3d-tex-fade'));
       gl!.uniform1f(uTexStrength, texReady ? 1 - (Number.isFinite(fade) ? fade : 30) / 100 : 0);
       gl!.drawArrays(gl!.TRIANGLES, 0, vertexCount);
       return { mvp, W, H, cam };
@@ -1045,7 +1050,7 @@ export function SpikeGL({
      * Projects each tile's TOP-FACE corners through the same matrix the GL layer
      * uses, and compares the bounds with the bounds the browser reports for the
      * real DOM tile. Top face, not footprint: the DOM tile is lifted by the same
-     * `--spike-h * --spike-relief`, so this now checks that the two layers agree
+     * `--board3d-h * --board3d-relief`, so this now checks that the two layers agree
      * about HEIGHT as well as about position.
      */
     function verify() {
@@ -1130,7 +1135,7 @@ export function SpikeGL({
       return [+(r / n).toFixed(2), +(g / n).toFixed(2), +(b / n).toFixed(2)];
     }
 
-    (window as unknown as { __spikeGL?: unknown }).__spikeGL = {
+    (window as unknown as { __boardGL?: unknown }).__boardGL = {
       draw,
       verify,
       coverage,
@@ -1160,14 +1165,14 @@ export function SpikeGL({
      *
      * ⚠ Without these in the comparison the loop only ever notices the matrix, so
      * every dial that feeds a uniform or the mesh rather than the camera silently
-     * did nothing on the GL board: turning Texture up changed `--spike-tex-fade`
+     * did nothing on the GL board: turning Texture up changed `--board3d-tex-fade`
      * and no frame was ever redrawn to read it. It looked exactly like the texture
      * feature being broken, and it is why the terrain could sit flat at any
      * strength until something else happened to force a redraw.
      */
     function inputKey(): string {
       const r = getComputedStyle(document.documentElement);
-      return `${r.getPropertyValue('--spike-tex-fade')}|${r.getPropertyValue('--spike-relief')}`;
+      return `${r.getPropertyValue('--board3d-tex-fade')}|${r.getPropertyValue('--board3d-relief')}`;
     }
 
     let raf = 0;
@@ -1204,11 +1209,11 @@ export function SpikeGL({
       window.removeEventListener('resize', onResize);
       obs.disconnect();
       cancelAnimationFrame(raf);
-      delete (window as unknown as { __spikeGL?: unknown }).__spikeGL;
+      delete (window as unknown as { __boardGL?: unknown }).__boardGL;
       cancelled = true;
       gl.deleteTexture(albedoTex);
       gl.deleteTexture(surfaceTex);
-      delete document.documentElement.dataset.spikeGl;
+      delete document.documentElement.dataset.board3dGl;
       canvas.remove();
     };
   }, [on, props, style, size, boardEl]);

@@ -21,7 +21,8 @@ import { SettingsDialog } from './SettingsDialog';
 import { AccountDialog } from './AccountDialog';
 import { useAuth } from './online/useAuth';
 import { useContent } from './useContent';
-import { Spike3D } from './Spike3D';
+import { BoardScene } from './BoardScene';
+import { BoardTuner } from './BoardTuner';
 import type { Keybinds } from './keybinds';
 import { MotionScopeProvider, motionConfigProps, outrunsPresentation, useMotionMode } from './motion';
 import { useOnlineSession } from './online/useOnlineSession';
@@ -109,6 +110,10 @@ function AppShell() {
   const [game, setGame] = useState<GameState | null>(null);
   const [detail, setDetail] = useState<DetailSubject | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The 3D dial box. Opened from Settings and deliberately NOT nested inside it —
+  // it has to survive the dialog closing, or the board it tunes stays hidden behind
+  // a backdrop. See BoardTuner.tsx.
+  const [tunerOpen, setTunerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   // Guest-first: this resolves to a real identity on first load with no signup, so there is
   // never a moment where the app is unusable pending a login.
@@ -352,8 +357,10 @@ function AppShell() {
           )}
         </main>
 
-        {/* SPIKE (throwaway): renders null unless the URL carries ?spike3d. */}
-        <Spike3D />
+        {/* Renderless: keeps the document in step with the saved board view, and owns
+            the WebGL terrain layer. In Simple view it writes nothing the flat board
+            reads. See BoardScene.tsx. */}
+        <BoardScene view={settings.board} />
 
         {detail && <CardDetailModal subject={detail} names={names} onClose={() => setDetail(null)} />}
         {accountOpen && <AccountDialog auth={auth} onClose={() => setAccountOpen(false)} />}
@@ -362,7 +369,18 @@ function AppShell() {
             settings={settings}
             onChange={setSettings}
             resolved={motionMode}
+            onTune={() => {
+              setSettingsOpen(false);
+              setTunerOpen(true);
+            }}
             onClose={() => setSettingsOpen(false)}
+          />
+        )}
+        {tunerOpen && settings.board.mode === '3d' && (
+          <BoardTuner
+            view={settings.board}
+            onChange={(board) => setSettings({ ...settings, board })}
+            onClose={() => setTunerOpen(false)}
           />
         )}
       </MotionScopeProvider>

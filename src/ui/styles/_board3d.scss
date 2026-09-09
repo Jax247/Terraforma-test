@@ -1,48 +1,58 @@
+@use 'mixins' as *;
+
 // ---------------------------------------------------------------------------
-// SPIKE — 3D board probe (throwaway, 2026-08-30)
+// The 3D board.
 //
-// Answers one question before anything gets spent on three.js: does the DotR
-// camera angle read at 7x7, with the card art we actually have? Zero
-// dependencies, and it touches no component logic — everything hangs off
-// `:root[data-spike3d='on']`, which src/ui/Spike3D.tsx sets.
+// Grew out of a spike that asked whether the DotR camera angle reads at 7x7 with
+// the card art we have. It does, so this is now the board the game opens with, and
+// the flat board is the "Simple" alternative in Settings.
 //
-// TO REVERT: delete this file, its `@use` in main.scss, src/ui/Spike3D.tsx and
-// its mount in App.tsx, and the `data-terrain` attribute in game/Board.tsx.
+// Zero dependencies, and it touches no component logic: everything hangs off
+// `:root[data-board3d='on']`, which src/ui/BoardScene.tsx sets from the saved
+// setting. With the attribute absent — Simple view — not one rule here matches and
+// the flat board is byte-identical to what it was before any of this existed. That
+// is the whole reason the 2D mode is trustworthy rather than a second thing to
+// maintain.
 //
-// Knobs — the panel writes all of these live; the defaults here only exist so
-// the stylesheet is meaningful on its own:
-//   --spike-tilt    board pitch (the camera angle under test)
-//   --spike-spin    board yaw
-//   --spike-persp   perspective distance; lower = wider lens
-//   --spike-relief  px of terrain height per unit of --spike-h
-//   --spike-squash  1 - cos(tilt), for the layout-gap compensation below
-//   --spike-dolly   camera distance, as translateZ toward the viewer
-//   --spike-grow    how much bigger the dolly made the projection, for the same
-//   --spike-lean    0 = piece lies flat on the board, 1 = stands fully upright
-//   --spike-card    the piece's own relief: how far it floats above its tile
-//   --spike-pan-x/y board pan, when the focused tile is being held at the centre
-//   --spike-eye-x/y the eye position, when it is tracking the focused tile
-//   --spike-chrome  opacity of the rails and hand, which float over the board
-//   --spike-tex-fade  flat colour washed back over the terrain texture; 100% = off
+// ⚠ Everything that touches the board itself is scoped under `.board-col`, which
+// only the game screen has. The MAP EDITOR renders `.board` and `.tile` too, and an
+// unscoped rule pitched it as well — without the column's `perspective` it came out
+// as a flat vertical squash rather than a tilt.
+//
+// Knobs — BoardScene.tsx writes all of these live from the settings; the defaults
+// here only exist so the stylesheet is meaningful on its own:
+//   --board3d-tilt    board pitch (the camera angle under test)
+//   --board3d-spin    board yaw
+//   --board3d-persp   perspective distance; lower = wider lens
+//   --board3d-relief  px of terrain height per unit of --board3d-h
+//   --board3d-squash  1 - cos(tilt), for the layout-gap compensation below
+//   --board3d-dolly   camera distance, as translateZ toward the viewer
+//   --board3d-grow    how much bigger the dolly made the projection, for the same
+//   --board3d-lean    0 = piece lies flat on the board, 1 = stands fully upright
+//   --board3d-card    the piece's own relief: how far it floats above its tile
+//   --board3d-pan-x/y board pan, when the focused tile is being held at the centre
+//   --board3d-eye-x/y the eye position, when it is tracking the focused tile
+//   --board3d-chrome  opacity of the rails and hand, which float over the board
+//   --board3d-tex-fade  flat colour washed back over the terrain texture; 100% = off
 // ---------------------------------------------------------------------------
 
-:root[data-spike3d='on'] {
-  --spike-tilt: 42deg;
-  --spike-spin: 0deg;
-  --spike-persp: 1400px;
-  --spike-relief: 0px; // 0 on purpose — see the relief block below
+:root[data-board3d='on'] {
+  --board3d-tilt: 42deg;
+  --board3d-spin: 0deg;
+  --board3d-persp: 1400px;
+  --board3d-relief: 0px; // 0 on purpose — see the relief block below
   // The top of the Relief slider's range. Walls are pinned here rather than
   // following the dial — see the Wall rule below.
-  --spike-relief-max: 20px;
-  --spike-squash: 0.257;
-  --spike-dolly: 0px;
-  --spike-grow: 0;
-  --spike-lean: 1;      // 1 = piece stands upright, 0 = flat on the board
-  --spike-card: 0px;    // how far the piece floats above its tile
-  --spike-pan-x: 0px;   // slides the board so the focused tile is at its centre
-  --spike-pan-y: 0px;
-  --spike-chrome: 0.78; // opacity of the rails/hand floating over the board
-  --spike-tex-fade: 30%; // how much flat terrain colour is washed back over the texture
+  --board3d-relief-max: 20px;
+  --board3d-squash: 0.257;
+  --board3d-dolly: 0px;
+  --board3d-grow: 0;
+  --board3d-lean: 1;      // 1 = piece stands upright, 0 = flat on the board
+  --board3d-card: 0px;    // how far the piece floats above its tile
+  --board3d-pan-x: 0px;   // slides the board so the focused tile is at its centre
+  --board3d-pan-y: 0px;
+  --board3d-chrome: 0.78; // opacity of the rails/hand floating over the board
+  --board3d-tex-fade: 30%; // how much flat terrain colour is washed back over the texture
 }
 
 // The lens. On the column rather than the board so the hand below stays flat —
@@ -55,16 +65,16 @@
 // `position: relative` is what makes that measurable — it makes this element the
 // offsetParent of every tile, so `tile.offsetLeft/Top` come out in exactly the
 // coordinate space `perspective-origin` wants, and are untouched by transforms.
-:root[data-spike3d='on'] .board-col {
+:root[data-board3d='on'] .board-col {
   position: relative;
-  perspective: var(--spike-persp);
-  perspective-origin: var(--spike-eye-x, 50%) var(--spike-eye-y, 42%);
+  perspective: var(--board3d-persp);
+  perspective-origin: var(--board3d-eye-x, 50%) var(--board3d-eye-y, 42%);
   // Without this, arrowing across the board snaps the vanishing point tile to
   // tile and the whole board twitches under the cursor.
   transition: perspective-origin 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-:root[data-spike3d='on'] .board {
+:root[data-board3d='on'] .board-col .board {
   // Order matters, and reads right-to-left: pitch and yaw the board first, THEN
   // slide the whole thing along the view axis. That last step is a real dolly —
   // the camera physically approaching the table — not a scale, so tiles near the
@@ -89,10 +99,10 @@
   // — would chase its own tail, because each correction changes the projection
   // that produced it.
   transform:
-    translateZ(var(--spike-dolly))
-    rotateX(var(--spike-tilt))
-    rotateZ(var(--spike-spin))
-    translate(var(--spike-pan-x), var(--spike-pan-y));
+    translateZ(var(--board3d-dolly))
+    rotateX(var(--board3d-tilt))
+    rotateZ(var(--board3d-spin))
+    translate(var(--board3d-pan-x), var(--board3d-pan-y));
   transform-style: preserve-3d;
   // A pitched board projects to roughly `height * cos(tilt)`, but its layout box
   // does not shrink — without this the hand is shoved down by a gap of dead air
@@ -103,18 +113,47 @@
   // while the top recedes well inside it. Pulling both by the same amount (the
   // first thing tried) slid the board over the hand panel.
   //
-  // The `--spike-grow` term is the same compensation for the dolly: closing in
+  // The `--board3d-grow` term is the same compensation for the dolly: closing in
   // magnifies the projection without changing the layout box at all, so the extra
   // height has to be reserved or the board climbs under the app header. It goes
   // negative when dollying out, giving the space back.
-  margin-top: calc((-0.55 * var(--spike-squash) + 0.5 * var(--spike-grow)) * 7 * var(--tile));
-  margin-bottom: calc((0.03 * var(--spike-squash) + 0.5 * var(--spike-grow)) * 7 * var(--tile));
+  margin-top: calc((-0.55 * var(--board3d-squash) + 0.5 * var(--board3d-grow)) * 7 * var(--tile));
+  margin-bottom: calc((0.03 * var(--board3d-squash) + 0.5 * var(--board3d-grow)) * 7 * var(--tile));
+}
+
+// ⚠ Below xl the dolly is dropped, whatever the dial says — and this is not a retreat
+// from the close camera, it is what keeps one usable there.
+//
+// The close camera works because the board FOLLOWS the cursor: only part of the board
+// is on screen at once, and clicking a tile near the edge of what you can see walks
+// the camera to the rest. That needs a foothold — some tiles clickable in the resting
+// frame to start the walk from. Above xl there are 17-23 of them at zoom 2.1.
+//
+// Below xl there are NONE. Measured at 834x1112 and 768x1024 with the dolly applied:
+// 0 of 49 tiles clickable at rest, because `--tile` is already near its 5.5rem cap and
+// the magnified board lands entirely outside a window that only scrolls vertically. A
+// mouse-only player has nowhere to press. With the dolly dropped it is 35 of 49.
+//
+// Nothing is lost in immersion either: at these widths the board already fills ~74% of
+// the window at zoom 1, against ~42% on a 1440px desktop. It is close-in by geometry
+// rather than by camera.
+//
+// Set on `.board` rather than `:root` deliberately: BoardScene writes these as inline
+// styles on the root element, which no stylesheet rule on `:root` could outrank.
+// Redefining them on the element that consumes them wins by being nearer in the
+// cascade, and the GL layer follows for free because it reads the board's computed
+// transform rather than the dials.
+@include below(xl) {
+  :root[data-board3d='on'] .board-col .board {
+    --board3d-dolly: 0px;
+    --board3d-grow: 0;
+  }
 }
 
 // Glide the pan from tile to tile. Scoped to the tracking mode on purpose: a
 // transition on `transform` also damps every slider, and dragging pitch or zoom
 // through treacle makes them impossible to judge.
-:root[data-spike3d='on'][data-spike-track='on'] .board {
+:root[data-board3d='on'][data-board3d-track='on'] .board-col .board {
   transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
@@ -133,12 +172,12 @@
 // a stacking context (it carries `perspective`) and `.detail-col` is its EARLIER
 // sibling, so by default the board painted straight over the card-detail rail.
 // `.hand` and the drawer live inside that context and are lifted within it.
-:root[data-spike3d='on'] {
+:root[data-board3d='on'] {
   .detail-col,
   .side {
     position: relative;
     z-index: 2;
-    opacity: var(--spike-chrome, 0.78);
+    opacity: var(--board3d-chrome, 0.78);
   }
 
   // ⚠ `.hand-panel`, not `.hand`. Lifting only the inner row left the PANEL —
@@ -149,27 +188,46 @@
   .drawer-tabs {
     position: relative;
     z-index: 2;
-    opacity: var(--spike-chrome, 0.78);
+    opacity: var(--board3d-chrome, 0.78);
   }
 
-  // The app bar already paints above the board; it only wants the same wash so
-  // the board reads as running behind ALL the chrome, not just some of it.
-  header {
-    opacity: var(--spike-chrome, 0.78);
-  }
+}
+
+// The app bar already paints above the board; it only wants the same wash so the
+// board reads as running behind ALL the chrome, not just some of it.
+//
+// ⚠ `:has()` rather than a plain `header`, because the app bar is OUTSIDE the game
+// layout and lives on every screen. Without the scope, switching the 3D board on
+// dimmed the header on the deck builder and the map editor too — screens that have
+// no board to run behind it.
+:root[data-board3d='on'] body:has(.game-layout) header {
+  opacity: var(--board3d-chrome, 0.78);
 }
 
 // ⚠ Translucent is not click-through: the rails and hand still take their own
-// clicks, so board tiles that end up underneath them cannot be reached. Zooming
-// past ~1.5x already killed the tiles in column 7 for exactly this reason, and
-// the overlay makes that visible rather than fixing it. `pointer-events: none`
-// is NOT the answer — these panels are real controls. The real fix is a board
-// stage wide enough that the two never overlap, which is a layout change.
+// clicks, so board tiles that end up underneath them cannot be reached, and
+// `pointer-events: none` is NOT the answer — these panels are real controls.
+//
+// ⚠⚠ THIS IS NOT A REASON TO PULL THE CAMERA BACK. The close view is the point of the
+// 3D board — DotR-style, sitting at the table rather than reading a map — and only
+// part of the board being on screen is the intended feel, not a defect.
+//
+// It holds together because the camera FOLLOWS the cursor. Measured at zoom 2.1 with
+// Follow on: 17-23 of the 49 tiles are clickable in any resting frame, and every one
+// of the 49 is 100% clickable once focused, because focusing it pans it to the centre.
+// A mouse-only walk to each far corner — repeatedly clicking the visible tile nearest
+// the goal — took 0, 1, 1 and 2 clicks at 1440x900. Arrow keys get there directly.
+//
+// So the pairing is load-bearing: a close camera WITH Follow is playable, a close
+// camera WITHOUT it is not (the same sweep with Follow off strands 30 of 49). The
+// tuner says as much on both dials. What genuinely does have to be defended is the
+// FOOTHOLD — that some tiles are always clickable at rest to start the walk from —
+// which is what the below-xl block above is protecting.
 
 // The preserve-3d chain has to be unbroken from .board down to the piece, or the
 // counter-rotation below flattens into a meaningless 2D skew.
-:root[data-spike3d='on'] .tile,
-:root[data-spike3d='on'] .unit {
+:root[data-board3d='on'] .board-col .tile,
+:root[data-board3d='on'] .unit {
   transform-style: preserve-3d;
 }
 
@@ -177,33 +235,59 @@
 // The whole reason a 3D view is worth considering here: terrain is the game's
 // identity, and height is the read a flat palette cannot give it.
 //
-// ⚠ MEASURED AND REJECTED — this is why `--spike-relief` defaults to 0. A lifted
-// plate with no side walls does not sit on the board, it floats above it: the
-// grid visibly tears, and black gaps open along the seams at as little as 2px.
-// Worse, it breaks input — a hit-test sweep of all 49 tiles found SIX with no
-// clickable area at all at 4px (1,7 7,7 1,4 7,4 1,1 7,1), where the same sweep
-// at relief 0 finds none at any angle.
+// ⚠ RELIEF IS THE GL LAYER'S NUMBER, NOT THE DOM'S. Lifting a CSS tile on its own
+// was measured and rejected: a plate with no side walls does not sit on the board,
+// it floats above it — the grid visibly tears, black gaps open along the seams at
+// as little as 2px, and a hit-test sweep of all 49 tiles found SIX with no clickable
+// area at all at 4px (1,7 7,7 1,4 7,4 1,1 7,1), where the same sweep at relief 0
+// finds none at any angle.
 //
-// Kept behind the knob as the evidence, not as a candidate. Terrain height needs
-// real extruded geometry, which is the strongest single argument for doing the
-// real version in three.js rather than extending this.
+// What fixed it was real extruded geometry with side walls, which is what BoardGL
+// draws. So the dial is live (9px by default) BECAUSE the GL layer is on, and the
+// stylesheet's own fallback below stays 0 for the case where it is not: turning the
+// terrain layer off in Settings drops the board back to flat tiles rather than to
+// the torn, unclickable version of height.
+//
+// The lift is still applied to the DOM tile as well, and deliberately so — the
+// pieces, focus rings and targeting outlines have to rise with the ground they are
+// standing on, or they float over a valley. It is the same one expression in both
+// layers (see `--board3d-relief-used` below), which is what stops them disagreeing.
 
-:root[data-spike3d='on'] .tile {
-  --spike-h: 0;
-  // Height is `--spike-h` times whatever relief THIS tile uses. The indirection
+:root[data-board3d='on'] .board-col .tile {
+  --board3d-h: 0;
+  // Height is `--board3d-h` times whatever relief THIS tile uses. The indirection
   // exists so a terrain can opt out of the global dial (see Wall), and both the
   // DOM tile and the GL geometry read the same resolved pair — one number, one
   // place, so the two layers cannot disagree about how tall a tile is.
-  --spike-relief-used: var(--spike-relief);
-  transform: translateZ(calc(var(--spike-h) * var(--spike-relief-used)));
+  --board3d-relief-used: var(--board3d-relief);
+  transform: translateZ(calc(var(--board3d-h) * var(--board3d-relief-used)));
+}
+
+// ⚠ The board's own surface must not take clicks once the terrain has height.
+//
+// Terrain that sinks BELOW the board plane — Sea at -0.7, Shadow at -0.3 — ends up
+// physically behind `.board`, which is a full-size element sitting at z=0. A
+// hit-test sweep of all 49 tiles found SIX with no clickable area at all for exactly
+// this reason: every sample landed on the board, not on the tile in the hollow.
+//
+// `.board` is only a backdrop here (with the terrain layer on it does not even
+// paint), so it steps out of hit-testing entirely and the tiles take their own
+// clicks. `pointer-events` inherits, hence the matching `auto` on the tile — and the
+// standing card's own `none`, further down, still wins over it by coming later.
+:root[data-board3d='on'] .board-col .board {
+  pointer-events: none;
+}
+
+:root[data-board3d='on'] .board-col .tile {
+  pointer-events: auto;
 }
 
 // Walls are pinned to the TOP of the relief range whatever the dial says. A wall
 // is the one terrain nothing may cross, and reading as impassable from across the
 // board is worth more than following a slider that exists to tune ground.
-:root[data-spike3d='on'] .tile[data-terrain='Wall'] {
-  --spike-h: 4;
-  --spike-relief-used: var(--spike-relief-max);
+:root[data-board3d='on'] .board-col .tile[data-terrain='Wall'] {
+  --board3d-h: 4;
+  --board3d-relief-used: var(--board3d-relief-max);
 }
 // ⚠ Only terrain whose GROUND is genuinely at a different level gets lifted much.
 //
@@ -213,17 +297,17 @@
 // was a hard edge. Both already have their vertical interest as SCENERY — trees
 // and peaks — so the tile lift was doing that job a second time and worse. A
 // forest floor is at ground level; what is tall is the trees.
-:root[data-spike3d='on'] .tile[data-terrain='Mountain']  { --spike-h: 0.9; }
-:root[data-spike3d='on'] .tile[data-terrain='Forest']    { --spike-h: 0.15; }
-:root[data-spike3d='on'] .tile[data-terrain='Sanctuary'] { --spike-h: 0.5; }
-:root[data-spike3d='on'] .tile[data-terrain='Grassland'] { --spike-h: 0.2; }
-:root[data-spike3d='on'] .tile[data-terrain='Shadow']    { --spike-h: -0.3; }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Mountain']  { --board3d-h: 0.9; }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Forest']    { --board3d-h: 0.15; }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Sanctuary'] { --board3d-h: 0.5; }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Grassland'] { --board3d-h: 0.2; }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Shadow']    { --board3d-h: -0.3; }
 // Shallow, not a pit. At -2 the sea sank so far below its neighbours that what
 // you mostly saw was their untextured side walls in shadow, with the lit water
 // surface reduced to a sliver — it read as a dark hole rather than as water. Side
 // walls are deliberately untextured (a vertically stretched material looks worse
 // than flat colour), so the fix is to stop digging so deep.
-:root[data-spike3d='on'] .tile[data-terrain='Sea']       { --spike-h: -0.7; }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Sea']       { --board3d-h: -0.7; }
 
 // ---- Terrain textures ------------------------------------------------------
 // Nine seamless tiles from `npm run terrain` (scripts/genTerrainTex.ts), each
@@ -232,7 +316,7 @@
 //
 // Layered rather than swapped in: the flat terrain colour stays underneath as
 // `background-color`, and a wash of that same colour is laid back OVER the
-// texture at `--spike-tex-fade` so the strength dial goes from "flat board" to
+// texture at `--board3d-tex-fade` so the strength dial goes from "flat board" to
 // "full material" without ever leaving the palette. That is also why the fade
 // colour is `--tile-bg` and not a grey — fading toward grey would desaturate
 // the terrain instead of just quieting the pattern.
@@ -240,52 +324,52 @@
 // It has to be `background-image` on the tile itself. `.tile::before` and
 // `::after` are both taken already (`.tile-available` and `.tile-move` use them
 // for the targeting outlines), and those cues must win over decoration.
-:root[data-spike3d='on'][data-spike-tex='on'] .tile {
+:root[data-board3d='on'][data-board3d-tex='on'] .board-col .tile {
   background-image:
     linear-gradient(
-      color-mix(in srgb, var(--tile-bg) var(--spike-tex-fade, 30%), transparent),
-      color-mix(in srgb, var(--tile-bg) var(--spike-tex-fade, 30%), transparent)
+      color-mix(in srgb, var(--tile-bg) var(--board3d-tex-fade, 30%), transparent),
+      color-mix(in srgb, var(--tile-bg) var(--board3d-tex-fade, 30%), transparent)
     ),
-    var(--spike-tex, none);
+    var(--board3d-tex, none);
   background-size: cover;
 }
 
-// Each terrain names a VARIABLE, not a file. Spike3D.tsx points those at the
+// Each terrain names a VARIABLE, not a file. BoardScene.tsx points those at the
 // chosen style and resolution directory, so this block never has to be written out
 // once per combination — `url()` cannot be composed from a custom property, which
 // is what forces the indirection.
-:root[data-spike3d='on'] .tile[data-terrain='Normal']    { --spike-tex: var(--tex-normal); }
-:root[data-spike3d='on'] .tile[data-terrain='Forest']    { --spike-tex: var(--tex-forest); }
-:root[data-spike3d='on'] .tile[data-terrain='Mountain']  { --spike-tex: var(--tex-mountain); }
-:root[data-spike3d='on'] .tile[data-terrain='Sea']       { --spike-tex: var(--tex-sea); }
-:root[data-spike3d='on'] .tile[data-terrain='Grassland'] { --spike-tex: var(--tex-grassland); }
-:root[data-spike3d='on'] .tile[data-terrain='Desert']    { --spike-tex: var(--tex-desert); }
-:root[data-spike3d='on'] .tile[data-terrain='Shadow']    { --spike-tex: var(--tex-shadow); }
-:root[data-spike3d='on'] .tile[data-terrain='Sanctuary'] { --spike-tex: var(--tex-sanctuary); }
-:root[data-spike3d='on'] .tile[data-terrain='Wall']      { --spike-tex: var(--tex-wall); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Normal']    { --board3d-tex: var(--tex-normal); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Forest']    { --board3d-tex: var(--tex-forest); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Mountain']  { --board3d-tex: var(--tex-mountain); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Sea']       { --board3d-tex: var(--tex-sea); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Grassland'] { --board3d-tex: var(--tex-grassland); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Desert']    { --board3d-tex: var(--tex-desert); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Shadow']    { --board3d-tex: var(--tex-shadow); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Sanctuary'] { --board3d-tex: var(--tex-sanctuary); }
+:root[data-board3d='on'] .board-col .tile[data-terrain='Wall']      { --board3d-tex: var(--tex-wall); }
 
-// ---- WebGL terrain probe ---------------------------------------------------
-// While the probe owns the terrain, the board's own surface has to get out of the
-// way: `.board` paints an opaque `--surface-sunken`, and the canvas sits BEHIND it
-// in the column. That is what made the first run of the probe look like a total
+// ---- WebGL terrain ---------------------------------------------------------
+// While the GL layer owns the terrain, the board's own surface has to get out of
+// the way: `.board` paints an opaque `--surface-sunken`, and the canvas sits BEHIND
+// it in the column. That is what made the first run of the layer look like a total
 // failure when the matrix was in fact already correct.
 //
 // The tiles go transparent too — they stay in the DOM as hit-targets, focus rings
 // and targeting outlines, which is exactly the division of labour the hybrid
 // proposes: WebGL draws the ground, the DOM keeps the interaction.
 //
-// ⚠ Carries `[data-spike3d]` it does not otherwise need, purely for SPECIFICITY.
+// ⚠ Carries `[data-board3d]` it does not otherwise need, purely for SPECIFICITY.
 // The terrain-texture rule above is `:root` + two attributes + a class; written
 // with one attribute this tied at three and lost, so the texture kept painting
-// over the canvas and the probe looked like a renderer that never ran. Matching
+// over the canvas and the layer looked like a renderer that never ran. Matching
 // at four and sitting later in the file is what actually settles it — moving the
 // block without matching the specificity changed nothing.
-:root[data-spike3d='on'][data-spike-gl='on'] .board {
+:root[data-board3d='on'][data-board3d-gl='on'] .board-col .board {
   background: transparent;
   box-shadow: none;
 }
 
-:root[data-spike3d='on'][data-spike-gl='on'] .tile {
+:root[data-board3d='on'][data-board3d-gl='on'] .board-col .tile {
   background: transparent;
   background-image: none;
 }
@@ -308,7 +392,7 @@
 // screen has to fit the window. What is left below is only the part that is
 // genuinely about a PITCHED board — the lift over its near edge, and dropping the
 // width cap the board no longer respects.
-:root[data-spike3d='on'] {
+:root[data-board3d='on'] {
   // (The hand's own lift is gone: it now occupies a full-width grid row of its
   // own, and `grid-template-rows: minmax(0, 1fr) auto` closes the gap under a
   // pitched board on its own. A negative margin on a grid item bought nothing —
@@ -318,7 +402,7 @@
 
 // ---- Pieces ----------------------------------------------------------------
 // A card in ATTACK stands up off the tile, hinged at its bottom edge. At
-// `--spike-lean: 1` it cancels exactly the board's pitch and faces the camera
+// `--board3d-lean: 1` it cancels exactly the board's pitch and faces the camera
 // square-on; at 0 it lies flat on the board like a plate, which is how DotR
 // itself renders a piece. Everything between is a lean, so the dial finds the
 // angle where the art still reads but the piece stops hiding the row behind it —
@@ -331,23 +415,23 @@
 //
 // Order reads right-to-left: hinge the card up, THEN lift it along the board's
 // normal, so the lift is always "off the table" and never "toward the camera".
-:root[data-spike3d='on'] .unit-card {
+:root[data-board3d='on'] .unit-card {
   transform-origin: center bottom;
-  transform: translateZ(var(--spike-card)) rotateX(calc(-1 * var(--spike-lean) * var(--spike-tilt)));
+  transform: translateZ(var(--board3d-card)) rotateX(calc(-1 * var(--board3d-lean) * var(--board3d-tilt)));
 }
 
 // The defending card takes the same lift but keeps its own quarter-turn — a
 // plate lying face-up on the table, raised off the terrain by the same amount as
 // everything else. Overrides the base rule in _game.scss by specificity alone,
 // so that rule stays untouched.
-:root[data-spike3d='on'] .unit-card-defending {
-  transform: translateZ(var(--spike-card)) rotate(90deg);
+:root[data-board3d='on'] .unit-card-defending {
+  transform: translateZ(var(--board3d-card)) rotate(90deg);
 }
 
 // The face-down card is a plate too, and lifts with the rest — otherwise a set
 // card sinks into the board next to the pieces it is meant to sit beside.
-:root[data-spike3d='on'] .facedown {
-  transform: translateZ(var(--spike-card));
+:root[data-board3d='on'] .facedown {
+  transform: translateZ(var(--board3d-card));
 }
 
 // ⚠ The standing card must not take clicks. Once it is upright it physically
@@ -363,16 +447,16 @@
 //
 // In three.js this problem does not arise: you pick by intersecting the board
 // plane, so the pieces are never hit targets in the first place.
-:root[data-spike3d='on'] .unit-card {
+:root[data-board3d='on'] .unit-card {
   pointer-events: none;
 }
 
 // Board chrome is a decal on the table in 2D; standing it up too is what keeps
 // it legible at a pitch. If this reads badly it is a real finding — illegible
 // status badges would sink the idea on their own.
-:root[data-spike3d='on'] .unit-badges,
-:root[data-spike3d='on'] .unit-info {
-  transform: translateZ(var(--spike-card)) rotateX(calc(-1 * var(--spike-tilt)));
+:root[data-board3d='on'] .unit-badges,
+:root[data-board3d='on'] .unit-info {
+  transform: translateZ(var(--board3d-card)) rotateX(calc(-1 * var(--board3d-tilt)));
   transform-origin: center bottom;
 }
 

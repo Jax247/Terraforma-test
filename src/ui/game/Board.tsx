@@ -233,8 +233,8 @@ export function Board({
               <div
                 key={`${col},${row}`}
                 role="gridcell"
-                // SPIKE (throwaway): the 3D probe gives terrain height, and needs to
-                // select on it. Nothing else reads this. See styles/_spike3d.scss.
+                // The 3D board gives terrain height, and both layers select on this
+                // to find it. Nothing else reads it. See styles/_board3d.scss.
                 data-terrain={tile.terrain}
                 // Addresses a tile by coordinate without depending on render order or on
                 // parsing the aria-label — used by the turn-start focus, and by tests.

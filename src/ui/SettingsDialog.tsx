@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
 import { Modal } from './Modal';
+import type { BoardMode } from './boardView';
 import { bindingsFor, DEFAULT_KEYBINDS, describeKeyEvent, keybindProblem, keyLabel, KEYBIND_SPECS } from './keybinds';
 import type { BoardCommand, Keybinds } from './keybinds';
 import { hasMotionOverride, MOTION_SETTING_LABELS, MOTION_SETTINGS } from './motion';
@@ -16,21 +17,68 @@ const MOTION_HINT: Record<MotionSetting, string> = {
   off: 'No animation at all.',
 };
 
+const BOARD_MODES: BoardMode[] = ['3d', '2d'];
+const BOARD_MODE_LABELS: Record<BoardMode, string> = { '3d': '3D table', '2d': 'Simple' };
+const BOARD_MODE_HINT: Record<BoardMode, string> = {
+  '3d':
+    'You sit close to a pitched table with real terrain height, lit in WebGL. Part of the board ' +
+    'is in view at a time and the camera follows you to the rest — pull Zoom back in the tuner ' +
+    'if you would rather see all of it at once.',
+  '2d':
+    'The flat top-down board — no perspective, no WebGL, no terrain textures. Everything plays ' +
+    'identically; it is the cheapest thing to draw and the easiest to read at a glance.',
+};
+
 export interface SettingsDialogProps {
   settings: StoredSettings;
   onChange: (next: StoredSettings) => void;
   /** What the setting actually resolved to, after overrides. */
   resolved: MotionMode;
+  /** Open the floating dial box — it has to outlive this dialog to be usable. */
+  onTune: () => void;
   onClose: () => void;
 }
 
-export function SettingsDialog({ settings, onChange, resolved, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ settings, onChange, resolved, onTune, onClose }: SettingsDialogProps) {
   // A ?motion= param or an automated browser outranks the saved setting; say so
   // rather than letting the control look broken.
   const overridden = hasMotionOverride();
+  const mode = settings.board.mode;
 
   return (
     <Modal title="Settings" onClose={onClose} top>
+      <div className={styles['group']}>
+        <div className={styles['groupTitle']}>Board</div>
+        <p className={styles['groupNote']}>{BOARD_MODE_HINT[mode]}</p>
+
+        <div className={styles['segmented']} role="radiogroup" aria-label="Board">
+          {BOARD_MODES.map((option) => (
+            <Button
+              key={option}
+              size="sm"
+              variant="ghost"
+              className={styles['segment']}
+              active={mode === option}
+              role="radio"
+              aria-checked={mode === option}
+              onClick={() => onChange({ ...settings, board: { ...settings.board, mode: option } })}
+            >
+              {BOARD_MODE_LABELS[option]}
+            </Button>
+          ))}
+        </div>
+
+        {/* Closes this dialog on the way out. The dials are all "does that read
+            better?" questions, and a modal backdrop over the board makes every one
+            of them unanswerable — see BoardTuner.tsx. */}
+        <div className={styles['resolved']}>
+          <Button size="sm" variant="ghost" disabled={mode !== '3d'} onClick={onTune}>
+            Tune the 3D board…
+          </Button>{' '}
+          {mode === '3d' ? 'Opens a dial box over the live board.' : 'Available in the 3D table view.'}
+        </div>
+      </div>
+
       <div className={styles['group']}>
         <div className={styles['groupTitle']}>Animations</div>
         <p className={styles['groupNote']}>{MOTION_HINT[settings.motion]}</p>

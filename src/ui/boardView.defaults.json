@@ -1,5 +1,5 @@
 {
-  "on": true,
+  "mode": "3d",
   "tilt": 40,
   "spin": 0,
   "persp": 1750,
@@ -9,7 +9,7 @@
   "card": 0,
   "follow": true,
   "chrome": 78,
-  "texture": 0,
+  "texture": 100,
   "gl": true,
   "scenery": true,
   "photoreal": true,
