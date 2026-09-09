@@ -24,6 +24,15 @@ export type BoardMode = '2d' | '3d';
 export interface BoardView {
   /** `3d` pitches the board; `2d` is the flat board, untouched. */
   mode: BoardMode;
+  /**
+   * Multiplier on the board's tile size.
+   *
+   * Applies in BOTH modes, unlike every other dial here — it is a property of the board
+   * rather than of the camera, and a player who wants bigger tiles wants them in Simple
+   * view too. `--tile` keeps its responsive clamp and this scales the result, so the
+   * board still answers to the viewport; this only moves where it sits in that range.
+   */
+  tile: number;
   /** Board pitch, in degrees — the camera angle. */
   tilt: number;
   /** Board yaw, in degrees. */
@@ -82,6 +91,7 @@ export function normalizeBoardView(saved: Partial<BoardView> | undefined): Board
   const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
   return {
     mode: saved?.mode === '2d' || saved?.mode === '3d' ? saved.mode : d.mode,
+    tile: num(saved?.tile, d.tile),
     tilt: num(saved?.tilt, d.tilt),
     spin: num(saved?.spin, d.spin),
     persp: num(saved?.persp, d.persp),
@@ -124,6 +134,7 @@ export const CAMERA_SLIDERS: SliderSpec[] = [
 
 /** What is drawn on the table, rather than where the camera is. */
 export const DETAIL_SLIDERS: SliderSpec[] = [
+  { key: 'tile', label: 'Tile size', min: 0.6, max: 2, step: 0.05, unit: '\u00d7', hint: 'Scales the whole board, in Simple view too. Room for about 1.3x on a 900px-tall laptop and 1.5x at 1080p; past that the board outgrows the layout and the far row is clipped away. Zoom is the cheaper way to get closer.', fmt: (n) => n.toFixed(2) },
   { key: 'relief', label: 'Relief', min: 0, max: 20, step: 1, unit: 'px', hint: 'How tall terrain stands. Needs the terrain layer to have side walls.' },
   { key: 'texture', label: 'Texture', min: 0, max: 100, step: 1, unit: '%', hint: '0 is flat terrain colour, 100 is the full material.' },
   { key: 'lean', label: 'Lean', min: 0, max: 100, step: 1, unit: '%', hint: '0 lays pieces flat like counters, 100 stands them up facing you.' },
@@ -173,6 +184,10 @@ export function applyBoardView(view: BoardView): () => void {
   const root = document.documentElement;
   const on = view.mode === '3d';
   root.dataset['board3d'] = on ? 'on' : 'off';
+
+  // Outside the `on` check on purpose: the tile scale is the one dial that applies to the
+  // flat board as well. _game.scss multiplies `--tile`'s own responsive clamp by it.
+  root.style.setProperty('--tile-scale', String(view.tile));
 
   root.style.setProperty('--board3d-tilt', `${view.tilt}deg`);
   root.style.setProperty('--board3d-spin', `${view.spin}deg`);
@@ -224,5 +239,6 @@ export function applyBoardView(view: BoardView): () => void {
   return () => {
     delete root.dataset['board3d'];
     delete root.dataset['board3dTex'];
+    root.style.removeProperty('--tile-scale');
   };
 }
