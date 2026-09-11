@@ -97,7 +97,19 @@
   // MULTIPLIES the clamp rather than replacing it, so the board keeps answering to the
   // viewport — the dial moves where it sits inside that responsive range instead of
   // pinning it to a fixed size that a phone cannot honour.
-  --tile: calc(clamp(2.25rem, min(11.5vw, 5.5rem), 5.5rem) * var(--tile-scale, 1));
+  //
+  // ⚠ Below xl the scale may only shrink the board, never grow it — hence `min(scale, 1)`.
+  //
+  // Down here the page scrolls and the rails have folded away, so the board is already ~74%
+  // of the window at 1x against ~42% on a desktop: there is nothing to gain. What growing
+  // it costs is reachability, and the reason is subtle — the page scrolls by LAYOUT box,
+  // while a pitched board's far rows project well outside theirs, so scrolling cannot bring
+  // them back. Measured at 834x1112, a mouse-only walk to the far corners: fine at 1x, stuck
+  // at 1.5x and 2x. Shrinking has no such problem and stays available.
+  //
+  // At xl the board is MEANT to outgrow its column, and the follow camera pans to the rest,
+  // so the xl rule below applies the scale in full.
+  --tile: calc(clamp(2.25rem, min(11.5vw, 5.5rem), 5.5rem) * min(var(--tile-scale, 1), 1));
 
   @include respond-to(xl) {
     // Sized off the HEIGHT as well as the width, because at `xl` the page no
