@@ -118,14 +118,29 @@ export function ActionMenu({
     };
     // Re-anchoring on scroll is more trouble than it's worth; close instead. Same call the
     // Popover makes, for the same reason.
-    const onScroll = () => onClose();
+    //
+    // ⚠ But NOT when the panel is scrolling ITSELF. This listener is in the capture phase on
+    // window — scroll does not bubble, which is the only way to see a descendant scrolling at
+    // all — so it also saw the menu's own scroll region and closed the menu the instant it
+    // moved. A long menu was therefore unusable in two different ways: the wheel shut it, and
+    // so did arrowing past the last visible item, because focusing an item scrolls it into
+    // view and that scroll is indistinguishable from a page scroll.
+    //
+    // The panel is a real scroll region (`max-height` + `overflow-y: auto` in _game.scss), so
+    // the fix is simply to let it scroll: only a scroll that started OUTSIDE it means the menu
+    // has drifted off the piece it is anchored to.
+    const onScroll = (e: Event) => {
+      if (panelRef.current?.contains(e.target as Node)) return;
+      onClose();
+    };
+    const onResize = () => onClose();
     document.addEventListener('mousedown', onDown);
     window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onScroll);
+    window.addEventListener('resize', onResize);
     return () => {
       document.removeEventListener('mousedown', onDown);
       window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onScroll);
+      window.removeEventListener('resize', onResize);
     };
   }, [onClose]);
 

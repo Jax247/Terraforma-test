@@ -92,7 +92,12 @@
   // The tile size lives HERE, not on .board, because the hand panel sizes itself
   // to the board's width from the same variable. Scoped to .board it silently fell
   // back to the :root value and overflowed the viewport.
-  --tile: clamp(2.25rem, min(11.5vw, 5.5rem), 5.5rem);
+  //
+  // `--tile-scale` is the player's dial (BoardScene writes it; 1 when unset). It
+  // MULTIPLIES the clamp rather than replacing it, so the board keeps answering to the
+  // viewport — the dial moves where it sits inside that responsive range instead of
+  // pinning it to a fixed size that a phone cannot honour.
+  --tile: calc(clamp(2.25rem, min(11.5vw, 5.5rem), 5.5rem) * var(--tile-scale, 1));
 
   @include respond-to(xl) {
     // Sized off the HEIGHT as well as the width, because at `xl` the page no
@@ -105,7 +110,7 @@
     // and the hand row beneath it. Divided by 7 because that is the board. The
     // figure is measured, not derived — at 21rem the hand still finished 6-11px
     // under the fold at every laptop height tested.
-    --tile: clamp(2.5rem, min(5.5vw, calc((100dvh - 23rem) / 7)), 5.75rem);
+    --tile: calc(clamp(2.5rem, min(5.5vw, calc((100dvh - 23rem) / 7)), 5.75rem) * var(--tile-scale, 1));
   }
 }
 
