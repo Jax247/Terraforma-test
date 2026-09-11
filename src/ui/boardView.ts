@@ -128,14 +128,14 @@ export interface SliderSpec {
 export const CAMERA_SLIDERS: SliderSpec[] = [
   { key: 'tilt', label: 'Pitch', min: 0, max: 72, step: 1, unit: '°', hint: 'How far the table is tilted away from you.' },
   { key: 'spin', label: 'Yaw', min: -40, max: 40, step: 1, unit: '°', hint: 'Rotate the table left or right.' },
-  { key: 'zoom', label: 'Zoom', min: 0.4, max: 2.6, step: 0.05, unit: '×', hint: 'How close the camera sits. High is the immersive view — you see part of the board and the camera follows you to the rest. Turn Follow off first if you want the whole board at once.', fmt: (n) => n.toFixed(2) },
+  { key: 'zoom', label: 'Zoom', min: 0.4, max: 2.6, step: 0.05, unit: '×', hint: 'How close the camera sits. High is the immersive view: you see part of the board and Follow pans you to the rest.', fmt: (n) => n.toFixed(2) },
   { key: 'persp', label: 'Lens', min: 500, max: 3000, step: 50, unit: 'px', hint: 'Low is a wide, dramatic lens; high is nearly isometric.' },
 ];
 
 /** What is drawn on the table, rather than where the camera is. */
 export const DETAIL_SLIDERS: SliderSpec[] = [
-  { key: 'tile', label: 'Tile size', min: 0.6, max: 2, step: 0.05, unit: '\u00d7', hint: 'Scales the whole board, in Simple view too. Room for about 1.3x on a 900px-tall laptop and 1.5x at 1080p; past that the board outgrows the layout and the far row is clipped away. Zoom is the cheaper way to get closer.', fmt: (n) => n.toFixed(2) },
-  { key: 'relief', label: 'Relief', min: 0, max: 20, step: 1, unit: 'px', hint: 'How tall terrain stands. Needs the terrain layer to have side walls.' },
+  { key: 'tile', label: 'Tile size', min: 0.6, max: 4, step: 0.05, unit: '\u00d7', hint: 'Scales the whole board, Simple view included. MULTIPLIES with Zoom — bigger tiles at 1x Zoom look the same as small tiles zoomed in, but draw sharper.', fmt: (n) => n.toFixed(2) },
+  { key: 'relief', label: 'Relief', min: 0, max: 20, step: 1, unit: 'px', hint: 'How tall terrain stands. Needs the terrain layer for side walls.' },
   { key: 'texture', label: 'Texture', min: 0, max: 100, step: 1, unit: '%', hint: '0 is flat terrain colour, 100 is the full material.' },
   { key: 'lean', label: 'Lean', min: 0, max: 100, step: 1, unit: '%', hint: '0 lays pieces flat like counters, 100 stands them up facing you.' },
   { key: 'card', label: 'Lift', min: 0, max: 24, step: 1, unit: 'px', hint: 'How far a piece floats above its tile.' },
@@ -157,7 +157,7 @@ export const CAMERA_TOGGLES: ToggleSpec[] = [
   {
     key: 'follow',
     label: 'Follow the cursor',
-    hint: 'Slide the board so the tile you are on stays at the centre. This is what lets a close camera reach the whole board — leave it on if Zoom is high.',
+    hint: 'Slides the board so the tile you are on stays centred. This is what lets a close camera reach the whole board.',
   },
 ];
 
@@ -242,3 +242,21 @@ export function applyBoardView(view: BoardView): () => void {
     root.style.removeProperty('--tile-scale');
   };
 }
+
+/**
+ * How magnified the board ends up: the two dials MULTIPLY, and only the product matters.
+ *
+ * Tile size grows the board in layout; Zoom dollies the camera toward it. Either alone is
+ * fine and the pair is not — 2x tiles at 2.1x zoom is a 4.2x board, which at the shipped
+ * layout leaves NOTHING clickable in a resting frame, so a mouse-only player cannot even
+ * begin the camera walk (see the foothold note in _board3d.scss).
+ *
+ * Measured at 1440x900, tiles clickable at rest by product:
+ *   2.0-2.3 -> 17    2.5 -> 11    2.7-2.9 -> 10 then 5    3.5+ -> 0
+ *
+ * So the warning starts at 3. Below that the board is close and comfortable; above it the
+ * mouse is running out of places to press, and by 3.5 it has none.
+ */
+export const MAGNIFICATION_WARN = 3;
+
+export const magnification = (view: BoardView): number => view.tile * view.zoom;

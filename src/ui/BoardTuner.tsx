@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
-import { BOARD_VIEW_DEFAULTS, CAMERA_SLIDERS, CAMERA_TOGGLES, DETAIL_SLIDERS, TERRAIN_TOGGLES } from './boardView';
+import { BOARD_VIEW_DEFAULTS, CAMERA_SLIDERS, CAMERA_TOGGLES, DETAIL_SLIDERS, MAGNIFICATION_WARN, magnification, TERRAIN_TOGGLES } from './boardView';
 import type { BoardView, SliderSpec, ToggleSpec } from './boardView';
 import styles from './BoardTuner.module.scss';
 
@@ -100,6 +100,13 @@ export function BoardTuner({ view, onChange, onClose }: BoardTunerProps) {
     </label>
   );
 
+  // Tile size and Zoom multiply, and only the product decides whether the mouse has anywhere
+  // to press. Shown rather than clamped: going bigger is a legitimate thing to want, and the
+  // keyboard reaches every tile at any size — but the board vanishing off every edge should
+  // never read as the app being broken.
+  const mag = magnification(view);
+  const tooBig = mag >= MAGNIFICATION_WARN;
+
   return (
     <div className={styles['tuner']} role="group" aria-label="Tune the 3D board" onPointerLeave={() => setHint(null)}>
       <div className={styles['head']}>
@@ -110,7 +117,17 @@ export function BoardTuner({ view, onChange, onClose }: BoardTunerProps) {
       </div>
 
       <div className={styles['body']}>
-        <p className={styles['hint']}>{hint ?? 'Every change applies to the board behind this panel as you make it.'}</p>
+        {/* The warning shares the hint's already-reserved box rather than claiming a slot of
+            its own, so appearing and disappearing cannot move the dials under the cursor. */}
+        <p className={styles['hint']}>
+          {hint ?? 'Every change applies to the board behind this panel as you make it.'}
+          {tooBig && (
+            <span className={styles['warn']}>
+              Tile size × Zoom = {mag.toFixed(1)}×. Past 3× barely any tile is clickable without
+              moving the camera first. Arrow keys still reach every one.
+            </span>
+          )}
+        </p>
 
         <div className={styles['section']}>
           <div className={styles['sectionTitle']}>Camera</div>

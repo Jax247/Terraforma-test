@@ -158,29 +158,60 @@ function handPage(ctx: TileMenuCtx): MenuPage {
   const counts = new Map<string, number>();
   for (const id of ps.hand) counts.set(id, (counts.get(id) ?? 0) + 1);
 
-  const groups: MenuGroup[] = [];
+  // ONE ROW PER CARD, with its plays a page deeper.
+  //
+  // Every card used to be a GROUP of its two-to-four plays, so a six-card hand opened as
+  // eighteen rows under six headings and the last cards were several screens down a scroll.
+  // Since the plays are the same three verbs on nearly every card, what the player is
+  // actually choosing at this level is the CARD — so that is what this level offers.
+  //
+  // The cost and the reason a card cannot be played stay HERE rather than moving behind the
+  // drill-down: an unaffordable card has to read as unaffordable without opening it, or the
+  // collapse would trade scrolling for a guessing game.
+  const items: MenuItem[] = [];
   for (const [cardId, n] of counts) {
     const def = ctx.view.cardDefs[cardId];
     if (!def) continue;
-    groups.push({
+    const plays = handPlays(cardId, def, ps.sp, ctx.playable);
+    if (plays.length === 0) continue;
+    // The play the card is named for — Summon for a unit, Cast for a spell — which is also the
+    // cost a player reads off the card itself. `handPlays` always lists it first.
+    const primary = plays[0]!;
+    const label = n > 1 ? `${def.name} ×${n}` : def.name;
+    const row = plays.map((play) => ({
+      key: play.kind,
+      label: play.long,
+      icon: playIcon(play.kind),
+      hint: play.cost > 0 ? `${play.cost} SP` : undefined,
+      disabled: !play.enabled,
+      reason: play.enabled ? undefined : play.title,
+      onSelect: () => runPlay(ctx, play.kind, cardId, def),
+    }));
+    // A trap sets and does nothing else. A one-item page to choose from is a page with no
+    // choice on it, so that card acts on selection instead of drilling in.
+    if (row.length === 1) {
+      items.push({ ...row[0]!, key: cardId, label, hint: primary.cost > 0 ? `${primary.cost} SP` : undefined });
+      continue;
+    }
+    const allBlocked = plays.every((play) => !play.enabled);
+    items.push({
       key: cardId,
-      label: n > 1 ? `${def.name} ×${n}` : def.name,
-      items: handPlays(cardId, def, ps.sp, ctx.playable).map((play) => ({
-        key: play.kind,
-        label: play.long,
-        icon: playIcon(play.kind),
-        hint: play.cost > 0 ? `${play.cost} SP` : undefined,
-        disabled: !play.enabled,
-        reason: play.enabled ? undefined : play.title,
-        onSelect: () => runPlay(ctx, play.kind, cardId, def),
-      })),
+      label,
+      icon: playIcon(primary.kind),
+      hint: primary.cost > 0 ? `${primary.cost} SP` : undefined,
+      disabled: allBlocked,
+      // Only when NOTHING can be done with it — a card that cannot be summoned but can still
+      // be set is a live option, and saying "costs 8 SP" on the row would be a lie about the
+      // set that is still available underneath.
+      reason: allBlocked ? primary.title : undefined,
+      submenu: { title: def.name, groups: [{ key: 'plays', items: row }] },
     });
   }
 
-  if (groups.length === 0) {
-    groups.push({ key: 'empty', items: [{ key: 'none', label: 'Your hand is empty.', disabled: true }] });
+  if (items.length === 0) {
+    return { title: 'Play a card', groups: [{ key: 'empty', items: [{ key: 'none', label: 'Your hand is empty.', disabled: true }] }] };
   }
-  return { title: 'Play a card', groups };
+  return { title: 'Play a card', groups: [{ key: 'hand', items }] };
 }
 
 function playIcon(kind: HandPlayKind) {
