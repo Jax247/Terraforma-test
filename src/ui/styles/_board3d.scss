@@ -119,6 +119,23 @@
   // negative when dollying out, giving the space back.
   margin-top: calc((-0.55 * var(--board3d-squash) + 0.5 * var(--board3d-grow)) * 7 * var(--tile));
   margin-bottom: calc((0.03 * var(--board3d-squash) + 0.5 * var(--board3d-grow)) * 7 * var(--tile));
+
+  // ---- Centring the thing you can actually see -------------------------------
+  // The margins above reserve SPACE; they cannot place the projection, and it is worth
+  // being clear why, because the obvious fix does not work. The offset between the
+  // projection and its own layout box is invariant under translation — a margin moves the
+  // box and the projection together — so no margin can ever bring the two into line.
+  // Measuring that offset and cancelling it diverges rather than converges.
+  //
+  // What the fitted fractions above get wrong is therefore not the reserved height but
+  // where the visible board ENDS UP. At 2x tiles it sat 366px under the app bar with a
+  // 313px gap below it: not merely too big for the column, but off-centre in it.
+  //
+  // `top` on a relatively positioned element is a paint-time nudge — it moves what you see
+  // without touching layout, so it cannot feed back into the margins or shove the hand.
+  // BoardScene measures the centring error and writes it here.
+  position: relative;
+  top: var(--board3d-fit-y, 0px);
 }
 
 // ⚠ Below xl the dolly is dropped, whatever the dial says — and this is not a retreat

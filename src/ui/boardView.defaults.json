@@ -1,11 +1,11 @@
 {
   "mode": "3d",
-  "tile": 1,
+  "tile": 2,
   "tilt": 40,
   "spin": 0,
   "persp": 1750,
   "relief": 9,
-  "zoom": 2.1,
+  "zoom": 1.0,
   "lean": 0,
   "card": 0,
   "follow": true,

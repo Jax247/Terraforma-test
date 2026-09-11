@@ -95,6 +95,12 @@
   text-align: right;
 }
 
+.warn {
+  display: block;
+  margin-top: 2px;
+  color: var(--state-warn);
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -110,11 +116,23 @@
   }
 }
 
+// ⚠ A FIXED height, not a min-height, and that is the whole point of it.
+//
+// This line changes on hover. With the box free to resize, a longer hint pushed every row
+// below it down — out from under the cursor and onto a different dial, which showed a
+// different hint, which resized the box again. The panel oscillated under a stationary
+// mouse and was impossible to aim at.
+//
+// So the space is reserved once, for the longest hint, and nothing below it ever moves.
+// `overflow-y` is the safety net: a hint someone lengthens later scrolls inside the box
+// instead of quietly bringing the jitter back.
 .hint {
   font-size: var(--text-3xs);
   color: var(--ink-muted);
   line-height: var(--leading-normal);
-  min-height: 2.4em;
+  height: 6em; // four lines at --leading-normal — measured against the longest hint
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin-bottom: var(--space-2);
 }
 
