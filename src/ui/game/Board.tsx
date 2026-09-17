@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { describeSigil, sameCoord, tileAt } from '../../engine';
 import type { Coord, GameState, PlayerId } from '../../engine';
 import { keyLabel, matchBoardCommand } from '../keybinds';
@@ -38,6 +38,12 @@ export interface BoardProps {
    * offer and shows no ⋯ button — which is most of them, most of the time.
    */
   menus: ReadonlyMap<string, MenuPage>;
+  /**
+   * Draws the card detail panel that sits beside an open action menu, for whichever item holds
+   * the cursor. Passed down rather than built here because the card body needs the game's
+   * `NameResolver`, which lives up in GameView with the rest of the view state.
+   */
+  renderMenuPreview?: (subject: DetailSubject) => ReactNode;
   /** Which key runs which board command. Player-configurable; see src/ui/keybinds.ts. */
   keybinds: Keybinds;
   /** The `cancel` command: back out of whatever the board is currently asking for. */
@@ -51,6 +57,11 @@ export interface BoardProps {
   onFocusTile: (c: Coord | null) => void;
   onInspect: (s: DetailSubject) => void;
   inspectUnit: (unitId: string) => DetailSubject;
+  /**
+   * The viewer's own face-down card, or null for an opponent's — the fog lives in GameView,
+   * which is the only place that holds the unfogged state to check ownership against.
+   */
+  inspectSet: (setId: string) => DetailSubject | null;
   /**
    * Put the grid cursor here whenever `focusKey` changes — the board's answer to
    * "a new turn just started, where am I?".
@@ -67,6 +78,7 @@ export interface BoardProps {
 export function Board({
   view,
   game,
+  viewer,
   rowOrder,
   colOrder,
   selected,
@@ -76,12 +88,14 @@ export function Board({
   availableTargets,
   onTile,
   menus,
+  renderMenuPreview,
   keybinds,
   onCancel,
   onHover,
   onFocusTile,
   onInspect,
   inspectUnit,
+  inspectSet,
   focusOn,
   focusKey,
 }: BoardProps) {
@@ -200,6 +214,12 @@ export function Board({
             const tile = tileAt(view.board, c);
             const occ = tile.occupant;
             const unit = occ?.kind === 'unit' ? view.units[occ.id] : undefined;
+            // A face-down card of the VIEWER'S OWN. Their own set cards describe themselves on
+            // hover and on focus exactly as a unit does; an opponent's keeps its silence, so the
+            // handlers below are not attached to it at all — hovering one must leave the panel
+            // showing whatever it was showing, not blank it.
+            const ownSet = occ?.kind === 'set' && view.setCards[occ.id]?.owner === viewer ? occ.id : undefined;
+            const ownSetName = ownSet ? view.cardDefs[view.setCards[ownSet]!.cardId]?.name : undefined;
 
             const isSel = unit !== undefined && selected === unit.id;
             const isMove = moveTargets.some((m) => sameCoord(m, c));
@@ -213,7 +233,9 @@ export function Board({
               tile.terrain === 'Wall' ? 'impassable' : null,
               tile.spring ? (tile.springActive ? 'active spring' : 'dormant spring') : null,
               tile.sigil ? `sigil: ${describeSigil(tile.sigil)}` : null,
-              occ?.kind === 'set' ? 'face-down card' : null,
+              // Named for its owner, as the panel now names it. An opponent's is announced as
+              // nothing more than a face-down card, which is all it is to them.
+              occ?.kind === 'set' ? (ownSetName ? `your face-down ${ownSetName}` : 'face-down card') : null,
               isMove ? (occ ? 'attackable' : 'reachable') : null,
               isShot ? 'in firing range' : null,
               // The outline is the only cue for the flows that carry no marker of their own
@@ -289,8 +311,10 @@ export function Board({
                   e.preventDefault();
                   openMenu(coord, e.currentTarget);
                 }}
-                onMouseEnter={unit ? () => onHover(inspectUnit(unit.id)) : undefined}
-                onMouseLeave={unit ? () => onHover(null) : undefined}
+                onMouseEnter={
+                  unit ? () => onHover(inspectUnit(unit.id)) : ownSet ? () => onHover(inspectSet(ownSet)) : undefined
+                }
+                onMouseLeave={unit || ownSet ? () => onHover(null) : undefined}
                 // React's focus events bubble, so focusing the unit's own info button counts as
                 // focusing its tile — which is what a player would expect it to mean. Blur fires
                 // before the next focus, so moving between tiles settles on the new one.
@@ -349,7 +373,12 @@ export function Board({
       ))}
 
       {menuAt !== null && menus.get(menuAt) && (
-        <ActionMenu page={menus.get(menuAt)!} anchor={menuAnchor} onClose={closeMenu} />
+        <ActionMenu
+          page={menus.get(menuAt)!}
+          anchor={menuAnchor}
+          onClose={closeMenu}
+          renderPreview={renderMenuPreview}
+        />
       )}
     </div>
   );

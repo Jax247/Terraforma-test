@@ -129,7 +129,8 @@ export interface ExpertOptions extends Partial<ExpertSearchSettings> {
  * understates them, so they are the ones that get the quota and the lookahead peek.
  */
 function isSetupAction(a: Action, before: GameState): boolean {
-  if (a.t === 'CastSpell' || a.t === 'FlipCard' || a.t === 'SetCard' || a.t === 'MoveSet' || a.t === 'SetStance') {
+  if (a.t === 'CastSpell' || a.t === 'FlipCard' || a.t === 'SetCard' || a.t === 'MoveSet' || a.t === 'SetStance'
+    || a.t === 'TurnSet') {
     return true;
   }
   // ⚠ A FUSE IS A SETUP ACTION (2026-08-08), and the most extreme one in the game. It is a `Move`

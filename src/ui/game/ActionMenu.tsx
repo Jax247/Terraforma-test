@@ -1,6 +1,8 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import type { DetailSubject } from '../CardDetail';
 import { Icon } from '../components/Icon';
 import type { IconName } from '../components/Icon';
 
@@ -31,6 +33,16 @@ export interface MenuItem {
   disabled?: boolean;
   /** Why it is off. Rendered under the label, so it is visible AND announced. */
   reason?: string;
+  /**
+   * The card, leader or token this item is about.
+   *
+   * Every item names a play, and a play is only worth choosing if you can see what you are
+   * playing — the level, the stats, the rules text. While the item holds the roving cursor its
+   * subject is shown in full beside the menu, so reading a card no longer means backing out of
+   * the menu to hover it in the hand. Same subject shape the detail rail and the modal take,
+   * so all three describe a card identically.
+   */
+  detail?: DetailSubject;
   onSelect?: () => void;
   /**
    * Drill-down page. Selecting pushes it over the current one rather than running `onSelect`.
@@ -59,21 +71,35 @@ export function ActionMenu({
   /** The element to sit over — the TILE, not the small button that opened it. */
   anchor,
   onClose,
+  renderPreview,
 }: {
   page: MenuPage;
   anchor: HTMLElement | null;
   onClose: () => void;
+  /**
+   * Renders the focused item's `detail` into the card panel beside the menu. A render prop
+   * rather than the card body itself, because the body needs a `NameResolver` off the game
+   * state and the menu has no business holding one.
+   */
+  renderPreview?: (subject: DetailSubject) => ReactNode;
 }) {
   // A stack rather than a single page, so "Play a card…" can be walked into and backed out of.
   const [stack, setStack] = useState<MenuPage[]>([page]);
   const [active, setActive] = useState(0);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [previewPos, setPreviewPos] = useState<{ top: number; left: number } | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const current = stack[stack.length - 1]!;
   const depth = stack.length;
   const count = current.groups.reduce((n, g) => n + g.items.length, 0);
+
+  // What the cursor is on, and therefore what the preview describes. Focus and hover both
+  // drive `active`, so the card follows either one.
+  const activeItem = flatten(current)[active];
+  const preview = activeItem?.detail && renderPreview ? renderPreview(activeItem.detail) : null;
 
   /**
    * Sit ABOVE the piece by preference: the menu is about the card under it, and covering that
@@ -96,6 +122,44 @@ export function ActionMenu({
   }, [anchor, depth]);
 
   /**
+   * The preview sits BESIDE the menu — to its right by preference, to its left when the menu is
+   * near the right edge, and nowhere at all when neither side fits (a phone, mostly, where the
+   * board's own `Card details` item still opens the modal).
+   *
+   * Beside rather than inside: the menu is anchored over a piece and is already as tall as the
+   * hand is long, and growing it by a card's height would push it off its own piece.
+   *
+   * Keyed on the item rather than on `detail` itself — the menus are rebuilt every render (see
+   * GameView), so the subject is a fresh object each time and a dependency on it would re-run
+   * this effect forever.
+   */
+  const previewKey = preview ? `${depth}:${activeItem?.key ?? ''}` : '';
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const card = previewRef.current;
+    if (!pos || !panel || !card) {
+      setPreviewPos(null);
+      return;
+    }
+    const p = panel.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const margin = 8;
+    const right = p.right + margin;
+    const left = right + c.width <= window.innerWidth - margin ? right : p.left - margin - c.width;
+    if (left < margin) {
+      setPreviewPos(null);
+      return;
+    }
+    // Top-aligned with the menu, then pulled back up the screen if the card is the taller of
+    // the two — a preview running off the bottom is a preview you cannot read.
+    const top = Math.max(margin, Math.min(p.top, window.innerHeight - c.height - margin));
+    // ⚠ Bail out when nothing moved. This effect runs on every render of a component whose
+    // parent rebuilds its props each time, and returning a fresh object unconditionally would
+    // be a render loop.
+    setPreviewPos((prev) => (prev && prev.top === top && prev.left === left ? prev : { top, left }));
+  }, [pos, depth, previewKey]);
+
+  /**
    * Focus follows the roving index.
    *
    * `depth` is a dependency because a new page reuses index 0 — the index alone does not
@@ -113,8 +177,12 @@ export function ActionMenu({
   }, [active, depth, placed]);
 
   useEffect(() => {
+    // The preview counts as part of the menu for both of these: it is the menu's own panel,
+    // just parked next to it, so clicking or scrolling it must not be read as "elsewhere".
+    const inside = (target: Node | null) =>
+      Boolean(panelRef.current?.contains(target) || previewRef.current?.contains(target));
     const onDown = (e: MouseEvent) => {
-      if (!panelRef.current?.contains(e.target as Node)) onClose();
+      if (!inside(e.target as Node)) onClose();
     };
     // Re-anchoring on scroll is more trouble than it's worth; close instead. Same call the
     // Popover makes, for the same reason.
@@ -130,7 +198,7 @@ export function ActionMenu({
     // the fix is simply to let it scroll: only a scroll that started OUTSIDE it means the menu
     // has drifted off the piece it is anchored to.
     const onScroll = (e: Event) => {
-      if (panelRef.current?.contains(e.target as Node)) return;
+      if (inside(e.target as Node)) return;
       onClose();
     };
     const onResize = () => onClose();
@@ -210,60 +278,81 @@ export function ActionMenu({
   let index = -1;
 
   return createPortal(
-    <div
-      ref={panelRef}
-      className="action-menu"
-      role="menu"
-      aria-label={current.title}
-      onKeyDown={onKeyDown}
-      // Hidden until measured, so it never flashes at 0,0.
-      style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? 'visible' : 'hidden' }}
-    >
-      <div className="action-menu-head">
-        {depth > 1 && (
-          <button type="button" className="action-menu-back" aria-label="Back" onClick={pop}>
-            <Icon name="back" size={13} />
-          </button>
-        )}
-        <span className="action-menu-title">{current.title}</span>
-      </div>
-
-      {current.groups.map((group) => (
-        <div key={group.key} role="group" aria-label={group.label} className="action-menu-group">
-          {group.label && <div className="action-menu-group-label">{group.label}</div>}
-          {group.items.map((item) => {
-            index += 1;
-            const at = index;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                role="menuitem"
-                ref={(el) => {
-                  itemRefs.current[at] = el;
-                }}
-                // `aria-disabled`, not `disabled`: an unavailable item stays focusable so its
-                // reason is reachable and announced, which is the whole point of showing it.
-                aria-disabled={item.disabled || undefined}
-                aria-haspopup={item.submenu ? 'menu' : undefined}
-                tabIndex={at === active ? 0 : -1}
-                className={clsx('action-menu-item', item.disabled && 'action-menu-item-off')}
-                onClick={() => activate(item)}
-                onMouseEnter={() => setActive(at)}
-              >
-                <span className="action-menu-icon">{item.icon && <Icon name={item.icon} size={13} />}</span>
-                <span className="action-menu-body">
-                  <span className="action-menu-label">{item.label}</span>
-                  {item.reason && <span className="action-menu-reason">{item.reason}</span>}
-                </span>
-                {item.hint && <span className="action-menu-hint">{item.hint}</span>}
-                {item.submenu && <Icon name="submenu" size={13} className="action-menu-chevron" />}
-              </button>
-            );
-          })}
+    <>
+      <div
+        ref={panelRef}
+        className="action-menu"
+        role="menu"
+        aria-label={current.title}
+        onKeyDown={onKeyDown}
+        // Hidden until measured, so it never flashes at 0,0.
+        style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? 'visible' : 'hidden' }}
+      >
+        <div className="action-menu-head">
+          {depth > 1 && (
+            <button type="button" className="action-menu-back" aria-label="Back" onClick={pop}>
+              <Icon name="back" size={13} />
+            </button>
+          )}
+          <span className="action-menu-title">{current.title}</span>
         </div>
-      ))}
-    </div>,
+
+        {current.groups.map((group) => (
+          <div key={group.key} role="group" aria-label={group.label} className="action-menu-group">
+            {group.label && <div className="action-menu-group-label">{group.label}</div>}
+            {group.items.map((item) => {
+              index += 1;
+              const at = index;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  role="menuitem"
+                  ref={(el) => {
+                    itemRefs.current[at] = el;
+                  }}
+                  // `aria-disabled`, not `disabled`: an unavailable item stays focusable so its
+                  // reason is reachable and announced, which is the whole point of showing it.
+                  aria-disabled={item.disabled || undefined}
+                  aria-haspopup={item.submenu ? 'menu' : undefined}
+                  tabIndex={at === active ? 0 : -1}
+                  className={clsx('action-menu-item', item.disabled && 'action-menu-item-off')}
+                  onClick={() => activate(item)}
+                  onMouseEnter={() => setActive(at)}
+                >
+                  <span className="action-menu-icon">{item.icon && <Icon name={item.icon} size={13} />}</span>
+                  <span className="action-menu-body">
+                    <span className="action-menu-label">{item.label}</span>
+                    {item.reason && <span className="action-menu-reason">{item.reason}</span>}
+                  </span>
+                  {item.hint && <span className="action-menu-hint">{item.hint}</span>}
+                  {item.submenu && <Icon name="submenu" size={13} className="action-menu-chevron" />}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      {preview && (
+        /*
+         * `aria-hidden`, deliberately. The item itself already announces its label, its cost and
+         * the sentence saying why it is unavailable; re-reading a whole card body on every arrow
+         * key would bury that. The panel is what the EYE gets, not a second announcement.
+         */
+        <div
+          ref={previewRef}
+          className="action-menu-preview"
+          aria-hidden="true"
+          style={{
+            top: previewPos?.top ?? -9999,
+            left: previewPos?.left ?? -9999,
+            visibility: previewPos ? 'visible' : 'hidden',
+          }}
+        >
+          {preview}
+        </div>
+      )}
+    </>,
     document.body,
   );
 }

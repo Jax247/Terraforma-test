@@ -2079,6 +2079,9 @@ export function applyAction(prev: GameState, a: Action): GameState {
     case 'MoveSet':
       doMoveSet(s, a.set, a.to);
       break;
+    case 'TurnSet':
+      doTurnSet(s, a.set, a.stance);
+      break;
     case 'FlipCard':
       doFlipCard(s, a.set, a.targets, a.chosenCards);
       break;
@@ -2422,6 +2425,32 @@ function doMoveSet(s: GameState, setId: string, to: Coord): void {
   log(s, `a face-down card moves to (${to.col},${to.row})`);
 }
 
+/**
+ * Turn a face-down UNIT to the other position, staying face-down throughout.
+ *
+ * Since the 2026-08-16 split of "hidden" from "braced", the stance a set unit holds is a real
+ * decision — but it was frozen at set time: a card put down in attack could only reach DEF by
+ * being flipped up first, spending the very hiddenness that made setting it worth doing. Turning
+ * it costs the card's action for the turn, exactly like walking it one tile (`doMoveSet`).
+ *
+ * No summoning-sickness gate, deliberately: a set card has never had one — `doMoveSet` charges
+ * `hasActed` and nothing else — and the stance it holds does nothing at all until something
+ * reveals it, so there is no tempo to protect here.
+ */
+function doTurnSet(s: GameState, setId: string, stance: 'attack' | 'defense'): void {
+  const sc = s.setCards[setId] ?? fail('no such set card');
+  if (sc.owner !== s.active) fail('not your set card');
+  if (s.cardDefs[sc.cardId]?.kind !== 'unit') fail('only a face-down unit holds a stance');
+  if (sc.hasActed) fail('set card already acted this turn');
+  if (sc.stance === stance) fail('card is already in that position');
+  sc.stance = stance;
+  sc.hasActed = true;
+  // Says neither which card nor which way — the back is identical whatever it holds, and this
+  // line is read by both players. (It does say a card CAN turn, which only a unit can; see the
+  // note on the menu entry in tileMenus.ts.)
+  log(s, `a face-down card is turned in place at (${sc.pos.col},${sc.pos.row})`);
+}
+
 function doSetStance(s: GameState, unitId: string, stance: 'attack' | 'defense'): void {
   const u = s.units[unitId] ?? fail('no such unit');
   if (u.owner !== s.active) fail('not your unit');
@@ -2730,6 +2759,11 @@ export function legalActions(s: GameState): Action[] {
       if (isOpen(s, to)) out.push({ t: 'MoveSet', set: sc.id, to });
     }
     const def = s.cardDefs[sc.cardId];
+    // Only a face-down UNIT holds a stance worth turning, and only to the position it is not
+    // already in — the back does not change, so this is free of any reveal.
+    if (def?.kind === 'unit') {
+      out.push({ t: 'TurnSet', set: sc.id, stance: sc.stance === 'defense' ? 'attack' : 'defense' });
+    }
     // Owner can flip up their own set spell (resolve it, paying its SP) or set unit (flip-summon);
     // never a trap. A mine prepaid at set, so it can always be flipped regardless of SP now.
     if (def?.kind === 'unit'

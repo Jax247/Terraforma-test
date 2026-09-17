@@ -1,5 +1,19 @@
 @use './styles/mixins' as *;
 
+// Said over a card of yours that is lying face-down on the board: the panel is
+// showing you hidden information you happen to own, and it has to say so, or the
+// card reads as face-up on the tile.
+.facedown {
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid var(--accent-dim);
+  background: var(--surface-inset);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-secondary);
+}
+
 // The illustration picker in the card-detail modal. Only appears for cards that
 // actually have alternates (see `npm run art -- --variants=N`).
 

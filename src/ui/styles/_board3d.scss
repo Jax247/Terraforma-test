@@ -441,7 +441,13 @@
 // plate lying face-up on the table, raised off the terrain by the same amount as
 // everything else. Overrides the base rule in _game.scss by specificity alone,
 // so that rule stays untouched.
+//
+// ⚠ The origin has to come back to the centre. The standing card hinges at its
+// bottom edge, and inheriting that hinge here spins the quarter-turn about the
+// foot of the card instead of its middle — which throws it clear of its own tile.
+// A card lying flat turns on the spot, like a tapped card on a table.
 :root[data-board3d='on'] .unit-card-defending {
+  transform-origin: center;
   transform: translateZ(var(--board3d-card)) rotate(90deg);
 }
 

@@ -621,6 +621,15 @@ export type Action =
   | { t: 'SetCard'; card: string; tile: Coord; stance?: 'attack' | 'defense' }
   | { t: 'MoveSet'; set: string; to: Coord }
   /**
+   * Turn a face-down UNIT to the other position — attack ↔ defense — WITHOUT revealing it.
+   *
+   * The stance a set unit holds (see SetCard.stance) is what it fights on whenever it comes up,
+   * and before this it was frozen at set time: a card put down in attack could only reach DEF by
+   * flipping up first, which spends the very hiddenness that made setting it worth doing.
+   * Consumes the set card's action for the turn, exactly like `MoveSet`.
+   */
+  | { t: 'TurnSet'; set: string; stance: 'attack' | 'defense' }
+  /**
    * `targets` names TILES; `chosenCards` names CARDS in a zone (`RaiseFromGraveyard` picks which
    * body comes back, `Search` mode 'choose' picks which card is fetched). The two are independent
    * axes of the same activation — a chosen Raise supplies one of each — which is why they are
