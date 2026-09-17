@@ -18,7 +18,20 @@ import { Modal } from './Modal';
 import styles from './CardDetail.module.scss';
 
 export type DetailSubject =
-  | { kind: 'card'; def: CardDef }
+  | {
+      kind: 'card';
+      def: CardDef;
+      /**
+       * This is one of the VIEWER'S OWN cards, lying face-down on the board.
+       *
+       * It changes nothing about what is drawn except a line saying so, but that line is
+       * load-bearing: without it the panel shows a card that looks for all the world like it
+       * is face-up on the tile you are looking at, and a player cannot tell what their
+       * opponent can see. Only ever set by a lookup that has checked ownership — see
+       * GameView's `inspectSet`, which is the one place a set card becomes a subject.
+       */
+      facedown?: boolean;
+    }
   | { kind: 'leader'; def: LeaderDef }
   | { kind: 'token'; def: TokenDef };
 
@@ -121,6 +134,9 @@ export function CardDetailBody({
   const sp = spCostOf(subject);
   return (
     <>
+      {subject.kind === 'card' && subject.facedown && (
+        <p className={styles['facedown']}>Face-down — only you can see this.</p>
+      )}
       <CardFrame
         id={subject.def.id}
         variant="hero"

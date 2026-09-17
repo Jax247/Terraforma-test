@@ -51,6 +51,15 @@ export interface BoardView {
   follow: boolean;
   /** Opacity of the rails and hand, which float above the board. */
   chrome: number;
+  /**
+   * How far each card in hand tucks behind its right-hand neighbour, in px.
+   *
+   * Signed, because the two things a player wants here are the same dial read in opposite
+   * directions: positive is overlap (a fan you can hold in a narrow window), 0 is edge to
+   * edge, negative opens a gap between the cards. Only the IDLE row answers to it — the card
+   * under the pointer always comes clear of the pile, whatever this says.
+   */
+  hand: number;
   /** Terrain texture strength, 0 = flat colour, 100 = full material. */
   texture: number;
   /** Draw the WebGL terrain underneath the DOM board. */
@@ -101,6 +110,7 @@ export function normalizeBoardView(saved: Partial<BoardView> | undefined): Board
     card: num(saved?.card, d.card),
     follow: bool(saved?.follow, d.follow),
     chrome: num(saved?.chrome, d.chrome),
+    hand: num(saved?.hand, d.hand),
     texture: num(saved?.texture, d.texture),
     gl: bool(saved?.gl, d.gl),
     scenery: bool(saved?.scenery, d.scenery),
@@ -140,6 +150,7 @@ export const DETAIL_SLIDERS: SliderSpec[] = [
   { key: 'lean', label: 'Lean', min: 0, max: 100, step: 1, unit: '%', hint: '0 lays pieces flat like counters, 100 stands them up facing you.' },
   { key: 'card', label: 'Lift', min: 0, max: 24, step: 1, unit: 'px', hint: 'How far a piece floats above its tile.' },
   { key: 'chrome', label: 'Chrome', min: 20, max: 100, step: 1, unit: '%', hint: 'Opacity of the rails and hand, which float over the board.' },
+  { key: 'hand', label: 'Hand overlap', min: -24, max: 96, step: 1, unit: 'px', hint: 'How far each card in hand tucks behind the next. 0 is edge to edge, below 0 opens a gap, and the card you point at always lifts clear. Applies to the fanned row on a wide layout.' },
 ];
 
 export interface ToggleSpec {
@@ -188,6 +199,10 @@ export function applyBoardView(view: BoardView): () => void {
   // Outside the `on` check on purpose: the tile scale is the one dial that applies to the
   // flat board as well. _game.scss multiplies `--tile`'s own responsive clamp by it.
   root.style.setProperty('--tile-scale', String(view.tile));
+  // Same reasoning: the hand is fanned in both modes, so its overlap is not a 3D dial.
+  // _game.scss reads this through `--hand-overlap`, which keeps the stylesheet's own default
+  // as the fallback for anything that renders before a view is applied.
+  root.style.setProperty('--hand-spread', `${view.hand}px`);
 
   root.style.setProperty('--board3d-tilt', `${view.tilt}deg`);
   root.style.setProperty('--board3d-spin', `${view.spin}deg`);
@@ -240,6 +255,7 @@ export function applyBoardView(view: BoardView): () => void {
     delete root.dataset['board3d'];
     delete root.dataset['board3dTex'];
     root.style.removeProperty('--tile-scale');
+    root.style.removeProperty('--hand-spread');
   };
 }
 

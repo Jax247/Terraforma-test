@@ -152,3 +152,89 @@ describe('setting a unit face-down', () => {
     expect(s.units[attacker.id]).toBeUndefined();
   });
 });
+
+// Turning a face-down unit (2026-09-12): the position it holds is changeable in place, without
+// revealing it. Before this it was frozen at set time — a card put down in attack could only
+// reach DEF by being flipped up first, which spends the hiddenness that made setting it worth it.
+describe('turning a face-down unit in place', () => {
+  it('swaps the held stance, stays face-down, and spends the card\'s action', () => {
+    let s = freshGame();
+    s.players[0].hand.push('thornfang');
+    const tile = ringTile(s, 0);
+    s = applyAction(s, { t: 'SetCard', card: 'thornfang', tile }); // attack by default
+    const setId = Object.values(s.setCards).find((c) => c.cardId === 'thornfang')!.id;
+
+    s = applyAction(s, { t: 'TurnSet', set: setId, stance: 'defense' });
+    expect(s.setCards[setId]!.stance).toBe('defense');
+    expect(s.setCards[setId]!.hasActed).toBe(true);
+    // Still hidden: no unit on the board, the tile still holds a back.
+    expect(Object.values(s.units).some((u) => u.cardId === 'thornfang')).toBe(false);
+    expect(tileAt(s.board, tile).occupant).toEqual({ kind: 'set', id: setId });
+
+    // Turning is the card's action for the turn, exactly like walking it.
+    expect(legalActions(s).some((a) => a.t === 'TurnSet' && a.set === setId)).toBe(false);
+    expect(legalActions(s).some((a) => a.t === 'MoveSet' && a.set === setId)).toBe(false);
+    expect(() => applyAction(s, { t: 'TurnSet', set: setId, stance: 'attack' })).toThrow();
+  });
+
+  it('offers exactly the position the card is NOT in, and nothing for a spell or trap', () => {
+    let s = freshGame();
+    s.players[0].hand.push('thornfang', 'verdantSurge');
+    s.players[0].sp = 12;
+    s = applyAction(s, { t: 'SetCard', card: 'thornfang', tile: ringTile(s, 0), stance: 'defense' });
+    s = applyAction(s, { t: 'SetCard', card: 'verdantSurge', tile: ringTile(s, 0) });
+    const unitSet = Object.values(s.setCards).find((c) => c.cardId === 'thornfang')!;
+    const spellSet = Object.values(s.setCards).find((c) => c.cardId === 'verdantSurge')!;
+
+    const turns = legalActions(s).filter((a) => a.t === 'TurnSet');
+    expect(turns).toEqual([{ t: 'TurnSet', set: unitSet.id, stance: 'attack' }]);
+    // A set spell holds no stance, so turning it is not an action that exists.
+    expect(turns.some((a) => a.t === 'TurnSet' && a.set === spellSet.id)).toBe(false);
+    expect(() => applyAction(s, { t: 'TurnSet', set: spellSet.id, stance: 'defense' })).toThrow();
+  });
+
+  it('carries the new position into the reveal, whichever way it comes up', () => {
+    let s = freshGame();
+    const tile = { col: 4, row: 2 };
+    const attackerTile = { col: 4, row: 3 };
+    tileAt(s.board, tile).terrain = 'Normal';
+    tileAt(s.board, attackerTile).terrain = 'Normal';
+
+    s.players[0].hand.push('thornfang'); // ATK 30 / DEF 15
+    s = applyAction(s, { t: 'SetCard', card: 'thornfang', tile }); // set in ATTACK
+    const setId = Object.values(s.setCards).find((c) => c.cardId === 'thornfang')!.id;
+    s = applyAction(s, { t: 'TurnSet', set: setId, stance: 'defense' });
+
+    s = endUntil(s, 1);
+    const attacker = debugSpawn(s, 'carrionSwarm', 1, attackerTile); // ATK 15
+    s = applyAction(s, { t: 'Move', unit: attacker.id, to: tile });
+
+    // The turn is what decided the stat: on DEF 15 vs ATK 15 this is the hold branch and both
+    // bodies live. Had the card kept the attack position it was set in, ATK 30 would have
+    // killed the attacker outright (the test above).
+    const flipped = Object.values(s.units).find((u) => u.cardId === 'thornfang')!;
+    expect(flipped.stance).toBe('defense');
+    expect(s.units[attacker.id]).toBeDefined();
+  });
+
+  it('says neither which card nor which way it turned', () => {
+    let s = freshGame();
+    s.players[0].hand.push('thornfang');
+    s = applyAction(s, { t: 'SetCard', card: 'thornfang', tile: ringTile(s, 0) });
+    const setId = Object.values(s.setCards).find((c) => c.cardId === 'thornfang')!.id;
+    s = applyAction(s, { t: 'TurnSet', set: setId, stance: 'defense' });
+    const last = s.log.at(-1)!;
+    expect(last).not.toMatch(/Thornfang/);
+    expect(last).not.toMatch(/defen/i);
+  });
+
+  it('refuses a card that is not yours', () => {
+    let s = freshGame();
+    s.players[0].hand.push('thornfang');
+    s = applyAction(s, { t: 'SetCard', card: 'thornfang', tile: ringTile(s, 0) });
+    const setId = Object.values(s.setCards).find((c) => c.cardId === 'thornfang')!.id;
+    s = endUntil(s, 1);
+    expect(() => applyAction(s, { t: 'TurnSet', set: setId, stance: 'defense' })).toThrow();
+    expect(legalActions(s).some((a) => a.t === 'TurnSet')).toBe(false);
+  });
+});

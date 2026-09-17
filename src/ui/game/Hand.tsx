@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import type { CSSProperties } from 'react';
 import { cardSpCost, defaultDef, unitSpCost } from '../../engine';
 import type { CardDef, GameState, PlayerId } from '../../engine';
 import { Button } from '../components/Button';
@@ -106,6 +107,15 @@ export function Hand({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -24, scale: 0.9 }}
                 transition={{ duration }}
+                /*
+                 * Where this card sits in the fan, and how wide the fan is. CSS cannot count
+                 * siblings into a number it can do arithmetic with, so the lean each card
+                 * takes off the middle of the hand is worked out in _game.scss from these two
+                 * (see `--hand-tilt`). Custom properties rather than an inline `transform`:
+                 * the wrapper's transform belongs to framer-motion's layout projection, which
+                 * rewrites it every frame.
+                 */
+                style={{ '--hand-i': i, '--hand-n': ps.hand.length } as CSSProperties}
               >
                 <CardFrame
                   id={cardId}

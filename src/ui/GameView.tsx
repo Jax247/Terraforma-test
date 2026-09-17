@@ -273,6 +273,26 @@ export function GameView({
     return { kind: 'card', def: game.cardDefs[unit.cardId]! };
   }
 
+  /**
+   * A face-down card on the board, but ONLY if it is the viewer's own.
+   *
+   * Their own set cards used to describe nothing at all — hovering or focusing one left the
+   * detail panel on whatever it had been showing, so the one piece on the board whose identity
+   * a player has to keep track of in their head was the one piece the UI refused to name. It is
+   * their card; the action menu has always named it in its own `Flip …` label, and this is the
+   * same disclosure by the same route.
+   *
+   * ⚠ The ownership check is the fog, and it is why this reads `game` rather than `view`: an
+   * opponent's set card returns null and contributes nothing, on a shared hotseat screen just
+   * as online. `facedown` is set so the panel says out loud that the card is still hidden.
+   */
+  function inspectSet(setId: string): DetailSubject | null {
+    const sc = game.setCards[setId];
+    if (!sc || sc.owner !== viewer) return null;
+    const def = game.cardDefs[sc.cardId];
+    return def ? { kind: 'card', def, facedown: true } : null;
+  }
+
   function clickTile(c: Coord) {
     if (game.phase === 'gameover') return;
     // Target-picking flows first.
@@ -390,14 +410,16 @@ export function GameView({
    * pick is in flight `clickTile` handles it first and the selection is inert, so describing the
    * selected unit there would be describing the one thing a click cannot currently act on.
    *
-   * A face-down card is deliberately not a source, exactly as it is not one for hover: its
-   * identity is hidden information, and both players share a screen in hotseat.
+   * A face-down card is a source only for the player who OWNS it — see `inspectSet`. An
+   * opponent's stays hidden information, on a shared hotseat screen as much as online.
    */
   const focusedOccupant = focusedTile ? tileAt(view.board, focusedTile).occupant : undefined;
   const focusedUnit = focusedOccupant?.kind === 'unit' ? view.units[focusedOccupant.id] : undefined;
+  const focusedSet = focusedOccupant?.kind === 'set' ? focusedOccupant.id : undefined;
   const detail: DetailSubject | null =
     hovered ??
     (focusedUnit ? inspectUnit(focusedUnit.id) : null) ??
+    (focusedSet ? inspectSet(focusedSet) : null) ??
     targetingSubject(view, viewer, targeting) ??
     (selectedUnit ? inspectUnit(selectedUnit.id) : null);
 
@@ -562,6 +584,10 @@ export function GameView({
           availableTargets={availableTargets}
           onTile={clickTile}
           menus={tileMenus}
+          // The card the menu's own cursor is on, drawn beside it. Same body the detail rail
+          // and the inspect modal render, so a card reads identically wherever it is shown.
+          renderMenuPreview={(subject) => <CardDetailBody subject={subject} names={names} />}
+          inspectSet={inspectSet}
           keybinds={keybinds}
           onCancel={cancel}
           onHover={setHovered}

@@ -56,12 +56,23 @@ export function buildTileMenus(ctx: TileMenuCtx): Map<string, MenuPage> {
 
   for (const unit of Object.values(view.units)) {
     if (unit.owner !== viewer) continue;
+    // Every item on a piece's own page is about that piece, so the preview beside the menu
+    // shows it throughout — including on `Play a card…`, where it is the leader doing the
+    // playing. Only inside that sub-page does the subject become the card being chosen.
+    const self = ctx.inspectUnit(unit.id);
     const groups: MenuGroup[] = unit.isLeader
-      ? [{ key: 'leader', items: [abilityItem(ctx), { key: 'play', label: 'Play a card…', icon: 'decks', submenu: handPage(ctx) }] }]
+      ? [
+          {
+            key: 'leader',
+            items: [abilityItem(ctx), { key: 'play', label: 'Play a card…', icon: 'decks', detail: self, submenu: handPage(ctx) }],
+          },
+        ]
       : [{ key: 'stance', label: 'Position', items: stanceItems(ctx, unit) }];
     groups.push({
       key: 'info',
-      items: [{ key: 'details', label: 'Card details', icon: 'info', onSelect: () => ctx.onInspect(ctx.inspectUnit(unit.id)) }],
+      items: [
+        { key: 'details', label: 'Card details', icon: 'info', detail: self, onSelect: () => ctx.onInspect(self) },
+      ],
     });
     menus.set(key(unit.pos), { title: unit.name, groups });
   }
@@ -70,6 +81,11 @@ export function buildTileMenus(ctx: TileMenuCtx): Map<string, MenuPage> {
     if (sc.owner !== viewer) continue;
     const def = view.cardDefs[sc.cardId];
     const items: MenuItem[] = [];
+
+    // The viewer's OWN face-down card — they are entitled to see what it is, exactly as the
+    // menu has always named it in its `Flip …` label. Nothing here reaches an opponent's set
+    // card: the loop skips those before it gets this far.
+    const mine: DetailSubject | undefined = def ? { kind: 'card', def, facedown: true } : undefined;
 
     if (def) {
       const canFlip = ctx.legal.some((a) => a.t === 'FlipCard' && a.set === sc.id);
@@ -82,6 +98,7 @@ export function buildTileMenus(ctx: TileMenuCtx): Map<string, MenuPage> {
         icon: 'flip',
         hint: cost > 0 ? `${cost} SP` : undefined,
         disabled: !canFlip,
+        detail: mine,
         reason: canFlip ? undefined : flipReason(def, sc.hasActed, view.players[viewer].sp),
         onSelect: () => ctx.onFlip(sc.id, def.kind === 'spell' ? def.effects : []),
       });
@@ -92,10 +109,33 @@ export function buildTileMenus(ctx: TileMenuCtx): Map<string, MenuPage> {
       key: 'move',
       label: 'Move it one tile',
       icon: 'move',
+      detail: mine,
       disabled: !canMove,
       reason: canMove ? undefined : sc.hasActed ? 'Already acted this turn.' : 'No open tile beside it.',
       onSelect: () => ctx.onMoveSet(sc.id),
     });
+
+    // A face-down UNIT holds the position it will fight on whenever it comes up, and turning it
+    // is the only way to change that without spending the hiddenness. Absent rather than
+    // disabled on a set spell or trap: those hold no stance at all, so there is nothing to
+    // explain — the same reason the flip entry words itself differently per kind.
+    if (def?.kind === 'unit') {
+      const turn = ctx.legal.find(
+        (a): a is Extract<Action, { t: 'TurnSet' }> => a.t === 'TurnSet' && a.set === sc.id,
+      );
+      items.push({
+        key: 'turn',
+        // Short enough to sit beside its hint without being clipped — the menu is only as wide
+        // as a tile's worth of chrome allows.
+        label: sc.stance === 'defense' ? 'Turn it to attack' : 'Turn it to defense',
+        icon: 'defending',
+        hint: 'stays hidden',
+        detail: mine,
+        disabled: !turn,
+        reason: turn ? undefined : 'Already acted this turn.',
+        onSelect: turn ? () => ctx.onDispatch(turn) : undefined,
+      });
+    }
 
     // Named here, exactly as the command rail has always named the viewer's own face-down
     // spells — it is their card, and they are entitled to know which one they are flipping.
@@ -115,6 +155,9 @@ function abilityItem(ctx: TileMenuCtx): MenuItem {
     key: 'ability',
     label: `Use ${leader.ability.name}`,
     icon: 'ability',
+    // The leader card carries the ability's own rules text, which is the one thing the item
+    // label has no room for.
+    detail: { kind: 'leader', def: leader },
     hint: `${leader.ability.cost} SP`,
     disabled: !can,
     reason: can ? undefined : `Costs ${leader.ability.cost} SP — you have ${sp}.`,
@@ -130,6 +173,7 @@ function stanceItems(ctx: TileMenuCtx, unit: Unit): MenuItem[] {
       label: a.stance === 'defense' ? 'Take defense stance' : 'Return to attack stance',
       icon: a.stance === 'defense' ? 'defending' : 'game',
       hint: 'uses action',
+      detail: ctx.inspectUnit(unit.id),
       onSelect: () => ctx.onDispatch(a),
     }));
   }
@@ -140,6 +184,7 @@ function stanceItems(ctx: TileMenuCtx, unit: Unit): MenuItem[] {
       key: 'stance',
       label: unit.stance === 'defense' ? 'Return to attack stance' : 'Take defense stance',
       icon: 'defending',
+      detail: ctx.inspectUnit(unit.id),
       disabled: true,
       reason: isSick(unit)
         ? `Still summoning-sick for ${unit.sickTurns} more turn${unit.sickTurns === 1 ? '' : 's'}.`
@@ -178,11 +223,13 @@ function handPage(ctx: TileMenuCtx): MenuPage {
     // cost a player reads off the card itself. `handPlays` always lists it first.
     const primary = plays[0]!;
     const label = n > 1 ? `${def.name} ×${n}` : def.name;
+    const detail: DetailSubject = { kind: 'card', def };
     const row = plays.map((play) => ({
       key: play.kind,
       label: play.long,
       icon: playIcon(play.kind),
       hint: play.cost > 0 ? `${play.cost} SP` : undefined,
+      detail,
       disabled: !play.enabled,
       reason: play.enabled ? undefined : play.title,
       onSelect: () => runPlay(ctx, play.kind, cardId, def),
@@ -199,6 +246,9 @@ function handPage(ctx: TileMenuCtx): MenuPage {
       label,
       icon: playIcon(primary.kind),
       hint: primary.cost > 0 ? `${primary.cost} SP` : undefined,
+      // The whole point of the collapse: the row names the card, and the panel beside it shows
+      // the card, so choosing between six of them no longer means remembering what they do.
+      detail,
       disabled: allBlocked,
       // Only when NOTHING can be done with it — a card that cannot be summoned but can still
       // be set is a live option, and saying "costs 8 SP" on the row would be a lie about the

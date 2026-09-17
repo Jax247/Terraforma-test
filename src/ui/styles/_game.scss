@@ -993,6 +993,27 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
   color: var(--ink-muted);
 }
 
+// ---- The card beside the menu -----------------------------------------------
+// Whatever the cursor is on, in full: art, stats, keywords and rules text.
+//
+// Its own panel rather than a region inside the menu, because the menu is anchored over a
+// piece and is already as tall as a hand is long — a card's worth of extra height would push
+// it off the piece it belongs to. ActionMenu measures both and parks this on whichever side
+// has room, so everything here is size and skin; nothing here does placement.
+.action-menu-preview {
+  position: fixed;
+  // Just under the menu. They are placed side by side and so never overlap, but if a clamp
+  // ever forced it, the menu is the half you have to be able to click.
+  z-index: 59;
+  width: 17rem;
+  max-height: min(30rem, calc(100vh - 1rem));
+  padding: var(--space-3);
+  @include panel(var(--surface-overlay));
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-3);
+  @include scroll-region;
+}
+
 // ---- Rail readouts ---------------------------------------------------------
 // What is left of the stance and leader panels now their buttons live on the board.
 
@@ -1071,11 +1092,20 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
   // genuinely shrinks; a transform would slide the cards over each other and
   // leave the row as wide as it ever was.
   @include respond-to(xl) {
-    --hand-overlap: 1.5rem;
+    // The tuner's Hand overlap dial, in px, with the shipped value as the fallback for
+    // anything that renders before a board view has been applied. Signed: negative is a gap,
+    // which is why the reveal below clamps rather than assuming an overlap to escape from.
+    --hand-overlap: var(--hand-spread, 1.5rem);
+    // How far each card leans off the one at the middle of the fan. Small on purpose: the
+    // name and stat plate is at the FOOT of a card, and a card tilts about a point below the
+    // row, so every extra degree buries a little more of its neighbour's name.
+    --hand-tilt: 1.6deg;
     flex-wrap: nowrap;
     gap: 0;
     // Room above for the action bar to pop into without being clipped.
     padding-top: 2.25rem;
+    // Room below for the outer cards, which the tilt swings down past the row's baseline.
+    padding-bottom: 0.5rem;
     align-items: flex-end;
     // Centred, so a fan of three sits under the middle of the board rather than
     // trailing off its left edge. Only at `xl`: below that the row is a
@@ -1100,13 +1130,49 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
     // overwritten, and the card never moves. Its child is untouched by motion,
     // so the lift lands there. (The margins below are fine on the wrapper: they
     // are layout, which is exactly what `layout` is there to animate.)
+    //
+    // ---- Held, not shelved ---------------------------------------------------
+    // Overlapping alone did not read as a hand: the cards abutted with nothing but
+    // a hairline between them, so two full-bleed illustrations ran together into
+    // one strip and the card in front did not look like it was in FRONT.
+    //
+    // Two things fix that, and they are both here rather than in CardFrame because
+    // they are true of a card being HELD and of nothing else the frame renders.
+    //
+    //   the edge — a 1px cut line plus a shadow thrown to the LEFT, onto the card
+    //     underneath. That shadow is what makes the overlap read as one card lying
+    //     over another instead of two pictures side by side.
+    //   the tilt — each card leans off the middle of the fan, about a pivot well
+    //     below the row, the way a hand splays in a palm. `--hand-i` / `--hand-n`
+    //     come from Hand.tsx because CSS cannot count its own siblings.
+    //
+    // The radius is repeated here so the shadow follows the frame's corners; the
+    // element itself has no background of its own to round.
     > * > * {
-      transition: transform var(--motion-base) var(--ease-out);
+      --hand-mid: calc((var(--hand-n, 1) - 1) / 2);
+      --hand-off: calc(var(--hand-i, 0) - var(--hand-mid));
+      --hand-angle: calc(var(--hand-off) * var(--hand-tilt));
+      --hand-lift: 0rem;
+      transform-origin: 50% 320%;
+      transform: translateY(var(--hand-lift)) rotate(var(--hand-angle));
+      border-radius: var(--radius-lg);
+      box-shadow:
+        0 0 0 1px #0000009c,
+        -0.6rem 0.15rem 1rem -0.45rem #000000d9;
+      transition:
+        transform var(--motion-base) var(--ease-out),
+        box-shadow var(--motion-base) var(--ease-out);
     }
 
+    // Lifted AND straightened — the card you are looking at comes out of the fan
+    // and squares up, which is the only state in which its whole face is readable.
     > *:hover > *,
     > *:focus-within > * {
-      transform: translateY(-0.5rem);
+      --hand-lift: -0.6rem;
+      --hand-angle: 0deg;
+      box-shadow:
+        0 0 0 1px #000000b8,
+        -0.7rem 0.6rem 1.4rem -0.4rem #000000e6;
     }
 
     // The card under the pointer (or holding focus) comes out of the fan: lifted,
@@ -1119,8 +1185,11 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
     > *:hover,
     > *:focus-within {
       z-index: 5;
-      margin-left: 0;
-      margin-right: var(--hand-overlap);
+      // `max(0px, …)`: with the dial past 0 the row is already spaced out, and there is no
+      // pile to step out of — collapsing the gap on one side and doubling it on the other
+      // would shove the row about for nothing.
+      margin-left: max(0px, calc(-1 * var(--hand-overlap)));
+      margin-right: max(0px, var(--hand-overlap));
       transform: translateY(-0.4rem);
     }
 
@@ -1166,6 +1235,28 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
     opacity var(--motion-base) var(--ease-out),
     transform var(--motion-base) var(--ease-out);
 
+  // ⚠ THE POINTER HAS TO BE ABLE TO REACH THESE BUTTONS.
+  //
+  // The bar floats a few pixels clear of the card's top edge, and that gap belonged to
+  // nothing at all: crossing it dropped `:hover`, which faded the bar out AND restored
+  // `pointer-events: none` — so the bar could never take the hover back, and summon / set /
+  // cast were unreachable by mouse from the moment they appeared. (Measured on a slow walk
+  // straight up from the middle of a card: opacity went 1 → 0 four pixels below the bar and
+  // never came back.)
+  //
+  // This spans the gap. It belongs to the bar, so a pointer inside it is still inside the
+  // wrapper's hover region, and it only exists while the bar is already shown — which is the
+  // only moment a bridge is needed. Taller than the gap, because the card's lift and the
+  // bar's own 4px settle animate at the same time and briefly widen it; wider than the bar,
+  // so an approach from either corner lands on it too.
+  &::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    inset-inline: -1.5rem;
+    height: calc(var(--space-1) + 0.3rem);
+  }
+
   @include below(xl) {
     // Below xl the page scrolls and the row wraps, so the buttons stay where they
     // were: under the card, always visible, no hover required on a touch screen.
@@ -1179,6 +1270,12 @@ $silhouette-p1: polygon(0 0, 100% 0, 100% 100%, 50% 92%, 0 100%);
     background: none;
     box-shadow: none;
     margin-top: var(--space-2);
+
+    // Nothing to bridge, then — and a stray absolute strip under a static bar would
+    // only sit over whatever happens to be below it.
+    &::after {
+      content: none;
+    }
   }
 }
 
